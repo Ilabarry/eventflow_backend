@@ -75,3 +75,25 @@ PERM_USER_SUSPEND = "user.suspend"
 # ------------------------------------------------------------------
 PHONE_MAX_LENGTH = 20
 NAME_MAX_LENGTH = 150
+
+
+# ------------------------------------------------------------------
+# Permissions du module Event (compléments)
+# ------------------------------------------------------------------
+PERM_EVENT_VIEW = "event.view"
+PERM_EVENT_CANCEL = "event.cancel"
+PERM_EVENT_VIEW_ALL = "event.view_all"
+PERM_EVENT_MANAGE_CATEGORY = "event.manage_category"
+
+# Liste complète des permissions Event (pour la création initiale)
+ALL_EVENT_PERMISSIONS = (
+    (PERM_EVENT_CREATE, "Créer un événement"),
+    (PERM_EVENT_VIEW, "Consulter un événement"),
+    (PERM_EVENT_UPDATE, "Modifier un événement"),
+    (PERM_EVENT_DELETE, "Supprimer un événement"),
+    (PERM_EVENT_PUBLISH, "Publier un événement"),
+    (PERM_EVENT_CANCEL, "Annuler un événement"),
+    (PERM_EVENT_VIEW_PARTICIPANTS, "Voir les participants d'un événement"),
+    (PERM_EVENT_VIEW_ALL, "Voir tous les événements (admin)"),
+    (PERM_EVENT_MANAGE_CATEGORY, "Gérer les catégories d'événements"),
+)
