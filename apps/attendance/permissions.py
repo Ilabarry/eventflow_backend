@@ -1,14 +1,16 @@
 """
 Règles d'autorisation du module Attendance.
 
-Phase 2 : fonctions utilisées par le service métier.
-Phase 3 : les classes de permission DRF (pour les vues) seront ajoutées ici.
+- Fonctions utilisées par le service métier (écriture).
+- Fonction et classe DRF utilisées par les vues (lecture).
 
 Rappel de la chaîne de propriété vérifiée côté backend :
     attendance → registration → event → organizer
 L'événement n'est JAMAIS fourni par le frontend : il est toujours
 déduit de l'inscription chargée en base.
 """
+
+from rest_framework.permissions import BasePermission
 
 from apps.accounts.constants import ROLE_ADMIN
 
@@ -33,3 +35,28 @@ def can_manage_event_attendance(user, event) -> bool:
     if not user or not user.is_authenticated:
         return False
     return is_platform_admin(user) or event.organizer_id == user.id
+
+
+def can_view_registration_attendance(user, registration) -> bool:
+    """
+    Peuvent consulter la présence liée à une inscription :
+        - le participant lui-même (sa propre présence) ;
+        - l'organisateur de l'événement ;
+        - un administrateur.
+    Tout autre utilisateur est refusé (protection IDOR : connaître
+    un UUID ne suffit pas pour lire les données d'autrui).
+    """
+    if not user or not user.is_authenticated:
+        return False
+    if registration.participant_id == user.id:
+        return True
+    return can_manage_event_attendance(user, registration.event)
+
+
+class CanViewAttendance(BasePermission):
+    """Permission DRF objet : obj est une Attendance."""
+
+    message = "Vous n'avez pas accès à cette présence."
+
+    def has_object_permission(self, request, view, obj):
+        return can_view_registration_attendance(request.user, obj.registration)
