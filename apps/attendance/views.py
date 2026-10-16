@@ -11,27 +11,35 @@ converties automatiquement au format standard par le handler global
 (common/exceptions/handlers.py) : aucun try/except n'est nécessaire ici.
 """
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
+from apps.attendance.filters import EventAttendanceFilter
 from apps.attendance.permissions import (
     CanViewAttendance,
+    can_manage_event_attendance,
     can_view_registration_attendance,
 )
 from apps.attendance.selectors import (
     get_attendance_by_id,
     get_attendance_by_registration,
+    get_event_attendance_list,
+    get_event_attendance_stats,
     get_user_attendances,
 )
 from apps.attendance.serializers import (
     AttendanceSerializer,
+    AttendanceStatsSerializer,
     CheckInSerializer,
+    EventAttendanceRowSerializer,
     MarkAbsentSerializer,
     MyAttendanceSerializer,
 )
 from apps.attendance.services import AttendanceService
+from apps.events.models import Event
 from apps.registrations.models import Registration
 from common.pagination.standard import StandardPagination
 from common.responses.standard import APIResponse
@@ -234,4 +242,97 @@ class RegistrationAttendanceView(APIView):
                 "attendance": payload,
             },
             message="Présence de l'inscription.",
+        )
+
+
+# ==================================================================
+# ORGANISATEUR — Liste d'accueil et statistiques d'un événement
+# ==================================================================
+def _get_managed_event(request, event_id):
+    """
+    Charge l'événement (404 s'il n'existe pas) et vérifie que l'utilisateur
+    en est l'organisateur ou un admin. Renvoie (event, réponse_erreur).
+    """
+    event = get_object_or_404(Event, pk=event_id)
+    if not can_manage_event_attendance(request.user, event):
+        return event, APIResponse.error(
+            message="Vous n'êtes pas l'organisateur de cet événement.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+    return event, None
+
+
+class EventAttendanceListView(APIView):
+    """GET /api/events/{event_id}/attendance/"""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=TAG,
+        summary="Liste d'accueil d'un événement",
+        description=(
+            "Tous les inscrits confirmés de l'événement avec leur statut de présence "
+            "(PRESENT, ABSENT ou NOT_CHECKED_IN). Réservé à l'organisateur et aux admins. "
+            "Liste paginée (?page=, ?page_size=)."
+        ),
+        parameters=[
+            OpenApiParameter("search", str, description="Nom, prénom, e-mail ou référence d'inscription."),
+            OpenApiParameter("status", str, enum=["PRESENT", "ABSENT", "NOT_CHECKED_IN"]),
+            OpenApiParameter("method", str, enum=["MANUAL", "QR_CODE"]),
+            OpenApiParameter("checked_in_after", str, description="Date/heure ISO 8601."),
+            OpenApiParameter("checked_in_before", str, description="Date/heure ISO 8601."),
+            OpenApiParameter(
+                "ordering", str,
+                description="last_name, first_name, checked_in_at, registered_at (préfixe - pour décroissant).",
+            ),
+        ],
+        responses={200: EventAttendanceRowSerializer(many=True), 400: _ERR_400,
+                   401: _ERR_401, 403: _ERR_403, 404: _ERR_404},
+    )
+    def get(self, request, event_id):
+        event, error = _get_managed_event(request, event_id)
+        if error:
+            return error
+
+        filterset = EventAttendanceFilter(request.GET, queryset=get_event_attendance_list(event))
+        if not filterset.is_valid():
+            return APIResponse.error(
+                message="Paramètres de filtre invalides.",
+                errors=filterset.errors,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(filterset.qs, request, view=self)
+        serializer = EventAttendanceRowSerializer(page, many=True)
+        return APIResponse.success(
+            data=paginator.get_paginated_response(serializer.data).data,
+            message=f"Liste d'accueil de '{event.title}'.",
+        )
+
+
+class EventAttendanceStatsView(APIView):
+    """GET /api/events/{event_id}/attendance/stats/"""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=TAG,
+        summary="Statistiques de présence d'un événement",
+        description=(
+            "Calculées sur les inscriptions confirmées : total_registered, present, absent, "
+            "not_checked_in, attendance_rate (present / total x 100), répartition par méthode "
+            "et arrivées par heure. Réservé à l'organisateur et aux admins."
+        ),
+        responses={200: AttendanceStatsSerializer, 401: _ERR_401, 403: _ERR_403, 404: _ERR_404},
+    )
+    def get(self, request, event_id):
+        event, error = _get_managed_event(request, event_id)
+        if error:
+            return error
+
+        stats = get_event_attendance_stats(event)
+        return APIResponse.success(
+            data=AttendanceStatsSerializer(stats).data,
+            message=f"Statistiques de présence de '{event.title}'.",
         )

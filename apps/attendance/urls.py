@@ -9,6 +9,8 @@ from django.urls import path
 from apps.attendance.views import (
     AttendanceDetailView,
     CheckInView,
+    EventAttendanceListView,
+    EventAttendanceStatsView,
     MarkAbsentView,
     MyAttendanceView,
     RegistrationAttendanceView,
@@ -20,6 +22,17 @@ urlpatterns = [
     # Organisateur
     path("attendance/check-in/", CheckInView.as_view(), name="attendance-check-in"),
     path("attendance/mark-absent/", MarkAbsentView.as_view(), name="attendance-mark-absent"),
+
+    path(
+        "events/<uuid:event_id>/attendance/",
+        EventAttendanceListView.as_view(),
+        name="event-attendance-list",
+    ),
+    path(
+        "events/<uuid:event_id>/attendance/stats/",
+        EventAttendanceStatsView.as_view(),
+        name="event-attendance-stats",
+    ),
 
     # Participant
     path("attendance/me/", MyAttendanceView.as_view(), name="attendance-me"),

@@ -47,6 +47,14 @@ class CheckInMethod(models.TextChoices):
 
 
 # ==================================================================
+# VALEUR CALCULÉE (jamais stockée en base)
+# ==================================================================
+# Affichée pour un inscrit confirmé qui n'a encore AUCUNE fiche de
+# présence. Utilisée par la liste d'accueil et les filtres.
+NOT_CHECKED_IN = "NOT_CHECKED_IN"
+
+
+# ==================================================================
 # LONGUEURS DE CHAMPS
 # ==================================================================
 STATUS_MAX_LENGTH = 10
