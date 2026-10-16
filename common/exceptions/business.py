@@ -124,3 +124,61 @@ class CategoryAlreadyExists(BusinessException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = "Une catégorie avec ce nom existe déjà."
     default_code = "category_already_exists"
+
+# ==================================================================
+# REGISTRATION — Exceptions spécifiques
+# ==================================================================
+class AlreadyRegistered(BusinessException):
+    """Levée lorsqu'un participant tente une double inscription active."""
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Vous êtes déjà inscrit à cet événement."
+    default_code = "already_registered"
+
+
+class EventFull(BusinessException):
+    """Levée lorsque la capacité maximale de l'événement est atteinte."""
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Cet événement est complet."
+    default_code = "event_full"
+
+
+class EventNotPublished(BusinessException):
+    """Levée lorsqu'on tente de s'inscrire à un événement non publié."""
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Cet événement n'accepte pas encore d'inscriptions."
+    default_code = "event_not_published"
+
+
+class EventCancelled(BusinessException):
+    """Levée lorsqu'on tente de s'inscrire à un événement annulé."""
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Cet événement est annulé."
+    default_code = "event_cancelled"
+
+
+class EventCompleted(BusinessException):
+    """Levée lorsqu'on tente de s'inscrire à un événement terminé."""
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Cet événement est terminé."
+    default_code = "event_completed"
+
+
+class RegistrationAlreadyCancelled(BusinessException):
+    """Levée lorsqu'on annule une inscription déjà annulée."""
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Cette inscription est déjà annulée."
+    default_code = "registration_already_cancelled"
+
+
+class RegistrationNotAllowed(BusinessException):
+    """Levée lorsqu'un utilisateur tente une action non autorisée."""
+    status_code = status.HTTP_403_FORBIDDEN
+    default_detail = "Vous n'êtes pas autorisé à effectuer cette action."
+    default_code = "registration_not_allowed"
+
+
+class PaymentRequired(BusinessException):
+    """Levée lorsqu'un événement payant est sélectionné sans TicketType."""
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Cet événement est payant. Un type de ticket est requis."
+    default_code = "payment_required"

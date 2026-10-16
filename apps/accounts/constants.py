@@ -97,3 +97,25 @@ ALL_EVENT_PERMISSIONS = (
     (PERM_EVENT_VIEW_ALL, "Voir tous les événements (admin)"),
     (PERM_EVENT_MANAGE_CATEGORY, "Gérer les catégories d'événements"),
 )
+
+
+# ------------------------------------------------------------------
+# Permissions du module Registration
+# ------------------------------------------------------------------
+PERM_REGISTRATION_CREATE = "registration.create"
+PERM_REGISTRATION_VIEW_OWN = "registration.view_own"
+PERM_REGISTRATION_CANCEL_OWN = "registration.cancel_own"
+PERM_REGISTRATION_VIEW_EVENT = "registration.view_event"
+PERM_REGISTRATION_CONFIRM = "registration.confirm"
+PERM_REGISTRATION_CANCEL = "registration.cancel"
+PERM_REGISTRATION_VIEW_ALL = "registration.view_all"
+
+ALL_REGISTRATION_PERMISSIONS = (
+    (PERM_REGISTRATION_CREATE, "Créer une inscription"),
+    (PERM_REGISTRATION_VIEW_OWN, "Voir ses propres inscriptions"),
+    (PERM_REGISTRATION_CANCEL_OWN, "Annuler ses propres inscriptions"),
+    (PERM_REGISTRATION_VIEW_EVENT, "Voir les inscriptions d'un événement"),
+    (PERM_REGISTRATION_CONFIRM, "Confirmer une inscription"),
+    (PERM_REGISTRATION_CANCEL, "Annuler une inscription (organisateur)"),
+    (PERM_REGISTRATION_VIEW_ALL, "Voir toutes les inscriptions (admin)"),
+)

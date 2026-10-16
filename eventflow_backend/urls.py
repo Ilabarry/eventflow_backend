@@ -22,6 +22,7 @@ urlpatterns = [
     # API EVENTFLOW
     path("api/", include("apps.accounts.urls")),
     path("api/", include("apps.events.urls")),
+    path("api/", include("apps.registrations.urls")),
 ]
 
 # Servir les fichiers médias en développement

@@ -364,11 +364,9 @@ class Event(models.Model):
         """
         Calcule le nombre de places restantes.
 
-        NOTE TEMPORAIRE (v1) :
-            Le module Registration n'est pas encore développé.
-            Pour l'instant, on considère qu'il y a 0 inscrit.
-            Dès que Registration sera prêt, cette méthode appellera
-            registration_service.count_confirmed_registrations(event_id).
+        Utilise le service de comptage de Registration (dépendance
+        unidirectionnelle : Event → Registration, via import local
+        pour éviter les cycles).
 
         Returns:
             - None si la capacité est UNLIMITED
@@ -377,9 +375,10 @@ class Event(models.Model):
         if self.capacity_type == CapacityType.UNLIMITED:
             return None
 
-        # TODO(registration): remplacer par un appel au service Registration
-        registered_count = 0
+        # Import local pour éviter la dépendance circulaire
+        from apps.registrations.selectors import count_active_registrations
 
+        registered_count = count_active_registrations(self)
         return max(0, self.capacity_limit - registered_count)
 
     def can_transition_to(self, new_status: str) -> bool:
