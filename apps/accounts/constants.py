@@ -75,3 +75,47 @@ PERM_USER_SUSPEND = "user.suspend"
 # ------------------------------------------------------------------
 PHONE_MAX_LENGTH = 20
 NAME_MAX_LENGTH = 150
+
+
+# ------------------------------------------------------------------
+# Permissions du module Event (compléments)
+# ------------------------------------------------------------------
+PERM_EVENT_VIEW = "event.view"
+PERM_EVENT_CANCEL = "event.cancel"
+PERM_EVENT_VIEW_ALL = "event.view_all"
+PERM_EVENT_MANAGE_CATEGORY = "event.manage_category"
+
+# Liste complète des permissions Event (pour la création initiale)
+ALL_EVENT_PERMISSIONS = (
+    (PERM_EVENT_CREATE, "Créer un événement"),
+    (PERM_EVENT_VIEW, "Consulter un événement"),
+    (PERM_EVENT_UPDATE, "Modifier un événement"),
+    (PERM_EVENT_DELETE, "Supprimer un événement"),
+    (PERM_EVENT_PUBLISH, "Publier un événement"),
+    (PERM_EVENT_CANCEL, "Annuler un événement"),
+    (PERM_EVENT_VIEW_PARTICIPANTS, "Voir les participants d'un événement"),
+    (PERM_EVENT_VIEW_ALL, "Voir tous les événements (admin)"),
+    (PERM_EVENT_MANAGE_CATEGORY, "Gérer les catégories d'événements"),
+)
+
+
+# ------------------------------------------------------------------
+# Permissions du module Registration
+# ------------------------------------------------------------------
+PERM_REGISTRATION_CREATE = "registration.create"
+PERM_REGISTRATION_VIEW_OWN = "registration.view_own"
+PERM_REGISTRATION_CANCEL_OWN = "registration.cancel_own"
+PERM_REGISTRATION_VIEW_EVENT = "registration.view_event"
+PERM_REGISTRATION_CONFIRM = "registration.confirm"
+PERM_REGISTRATION_CANCEL = "registration.cancel"
+PERM_REGISTRATION_VIEW_ALL = "registration.view_all"
+
+ALL_REGISTRATION_PERMISSIONS = (
+    (PERM_REGISTRATION_CREATE, "Créer une inscription"),
+    (PERM_REGISTRATION_VIEW_OWN, "Voir ses propres inscriptions"),
+    (PERM_REGISTRATION_CANCEL_OWN, "Annuler ses propres inscriptions"),
+    (PERM_REGISTRATION_VIEW_EVENT, "Voir les inscriptions d'un événement"),
+    (PERM_REGISTRATION_CONFIRM, "Confirmer une inscription"),
+    (PERM_REGISTRATION_CANCEL, "Annuler une inscription (organisateur)"),
+    (PERM_REGISTRATION_VIEW_ALL, "Voir toutes les inscriptions (admin)"),
+)

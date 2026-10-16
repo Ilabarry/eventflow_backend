@@ -190,6 +190,17 @@ CORS_ALLOWED_ORIGINS = config(
 CORS_ALLOW_CREDENTIALS = True
 
 # ------------------------------------------------------------------
+# ATTENDANCE (présences)
+# ------------------------------------------------------------------
+# Nombre de minutes avant le début d'un événement à partir duquel
+# le check-in est ouvert (accueil des participants).
+ATTENDANCE_CHECK_IN_OPENS_BEFORE_MINUTES = config(
+    'ATTENDANCE_CHECK_IN_OPENS_BEFORE_MINUTES',
+    default=120,
+    cast=int,
+)
+
+# ------------------------------------------------------------------
 # SÉCURITÉ (production)
 # ------------------------------------------------------------------
 if not DEBUG:

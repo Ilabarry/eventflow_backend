@@ -15,12 +15,15 @@ urlpatterns = [
     # Admin Django
     path("admin/", admin.site.urls),
 
-    # API EVENTFLOW
-    path("api/", include("apps.accounts.urls")),
-
-    # Documentation API (Swagger)
+    # Documentation API
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+
+    # API EVENTFLOW
+    path("api/", include("apps.accounts.urls")),
+    path("api/", include("apps.events.urls")),
+    path("api/", include("apps.registrations.urls")),
+    path("api/", include("apps.attendance.urls")),
 ]
 
 # Servir les fichiers médias en développement
