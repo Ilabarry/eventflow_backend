@@ -180,6 +180,16 @@ SPECTACULAR_SETTINGS = {
 }
 
 # ------------------------------------------------------------------
+# PAYMENT
+# ------------------------------------------------------------------
+PAYMENT_DEFAULT_CURRENCY = config("PAYMENT_DEFAULT_CURRENCY", default="XOF")
+PAYMENT_DEVELOPMENT_ENABLED = config(
+    "PAYMENT_DEVELOPMENT_ENABLED",
+    default=DEBUG,
+    cast=bool,
+)
+
+# ------------------------------------------------------------------
 # CORS (pour Angular)
 # ------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = config(

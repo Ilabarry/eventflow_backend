@@ -119,3 +119,24 @@ ALL_REGISTRATION_PERMISSIONS = (
     (PERM_REGISTRATION_CANCEL, "Annuler une inscription (organisateur)"),
     (PERM_REGISTRATION_VIEW_ALL, "Voir toutes les inscriptions (admin)"),
 )
+
+
+
+# ------------------------------------------------------------------
+# Permissions du module Payment
+# ------------------------------------------------------------------
+PERM_PAYMENT_VIEW = "payment.view"
+PERM_PAYMENT_INITIATE = "payment.initiate"
+PERM_PAYMENT_CANCEL = "payment.cancel"
+PERM_PAYMENT_REFUND = "payment.refund"
+PERM_PAYMENT_MANAGE = "payment.manage"
+PERM_PAYMENT_VIEW_STATS = "payment.view_stats"
+
+ALL_PAYMENT_PERMISSIONS = (
+    (PERM_PAYMENT_VIEW, "Consulter les paiements"),
+    (PERM_PAYMENT_INITIATE, "Initier un paiement"),
+    (PERM_PAYMENT_CANCEL, "Annuler un paiement"),
+    (PERM_PAYMENT_REFUND, "Rembourser un paiement"),
+    (PERM_PAYMENT_MANAGE, "Administrer les paiements"),
+    (PERM_PAYMENT_VIEW_STATS, "Voir les statistiques de paiement"),
+)

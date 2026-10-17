@@ -182,3 +182,70 @@ class PaymentRequired(BusinessException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "Cet événement est payant. Un type de ticket est requis."
     default_code = "payment_required"
+
+
+
+    # ==================================================================
+# PAYMENT — Exceptions spécifiques
+# ==================================================================
+class PaymentAlreadySuccessful(BusinessException):
+    """Levée lorsqu'un paiement SUCCESS existe déjà pour une inscription."""
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Un paiement réussi existe déjà pour cette inscription."
+    default_code = "payment_already_successful"
+
+
+class PaymentNotFound(BusinessException):
+    """Levée lorsque le paiement est introuvable."""
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "Paiement introuvable."
+    default_code = "payment_not_found"
+
+
+class PaymentNotPayable(BusinessException):
+    """Levée lorsque l'inscription n'est pas payable (déjà confirmée, etc.)."""
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Cette inscription n'est pas payable."
+    default_code = "payment_not_payable"
+
+
+class PaymentAlreadyCancelled(BusinessException):
+    """Levée lorsqu'on annule un paiement déjà annulé."""
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Ce paiement est déjà annulé."
+    default_code = "payment_already_cancelled"
+
+
+class PaymentAlreadyRefunded(BusinessException):
+    """Levée lorsqu'on rembourse un paiement déjà remboursé."""
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Ce paiement est déjà remboursé."
+    default_code = "payment_already_refunded"
+
+
+class InvalidPaymentState(BusinessException):
+    """Levée lorsque l'état du paiement ne permet pas l'action demandée."""
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "L'état du paiement ne permet pas cette action."
+    default_code = "invalid_payment_state"
+
+
+class PaymentProviderUnavailable(BusinessException):
+    """Levée lorsque le provider de paiement est indisponible."""
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Le service de paiement est temporairement indisponible."
+    default_code = "payment_provider_unavailable"
+
+
+class PaymentProviderError(BusinessException):
+    """Levée lorsqu'une erreur survient côté provider."""
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = "Erreur du service de paiement."
+    default_code = "payment_provider_error"
+
+
+class PaymentOwnershipError(BusinessException):
+    """Levée lorsqu'un utilisateur tente d'accéder à un paiement qui n'est pas le sien."""
+    status_code = status.HTTP_403_FORBIDDEN
+    default_detail = "Vous n'êtes pas autorisé à accéder à ce paiement."
+    default_code = "payment_ownership_error"
