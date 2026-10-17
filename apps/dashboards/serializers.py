@@ -7,6 +7,7 @@ from apps.events.models import Event
 from apps.registrations.models import Registration
 from apps.events.constants import EventFormat, EventStatus
 from apps.registrations.constants import RegistrationStatus
+from apps.accounts.models import User
 
 
 class OrganizerDashboardSummarySerializer(serializers.Serializer):
@@ -232,6 +233,205 @@ class ParticipantDashboardSerializer(serializers.Serializer):
         read_only=True,
     )
     recent_notifications = serializers.JSONField(
+        allow_null=True,
+        read_only=True,
+    )
+class AdminDashboardSummarySerializer(serializers.Serializer):
+    """Indicateurs globaux de la plateforme."""
+
+    total_users = serializers.IntegerField(read_only=True)
+    active_users = serializers.IntegerField(read_only=True)
+    inactive_users = serializers.IntegerField(read_only=True)
+    participant_users = serializers.IntegerField(read_only=True)
+    organizer_users = serializers.IntegerField(read_only=True)
+    admin_users = serializers.IntegerField(read_only=True)
+
+    total_events = serializers.IntegerField(read_only=True)
+    published_events = serializers.IntegerField(read_only=True)
+    upcoming_events = serializers.IntegerField(read_only=True)
+    completed_events = serializers.IntegerField(read_only=True)
+    draft_events = serializers.IntegerField(read_only=True)
+    cancelled_events = serializers.IntegerField(read_only=True)
+
+    total_registrations = serializers.IntegerField(read_only=True)
+    active_registrations = serializers.IntegerField(read_only=True)
+    pending_registrations = serializers.IntegerField(read_only=True)
+    confirmed_registrations = serializers.IntegerField(read_only=True)
+    cancelled_registrations = serializers.IntegerField(read_only=True)
+    active_unique_participants = serializers.IntegerField(read_only=True)
+    attended_registrations = serializers.IntegerField(read_only=True)
+    attendance_rate = serializers.FloatField(read_only=True)
+
+
+class AdminDashboardRecentEventSerializer(serializers.ModelSerializer):
+    """Informations minimales sur un événement récent."""
+
+    organizer_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Event
+        fields = (
+            "id",
+            "title",
+            "status",
+            "start_at",
+            "created_at",
+            "organizer_name",
+        )
+        read_only_fields = fields
+
+    def get_organizer_name(self, event: Event) -> str:
+        organizer = event.organizer
+        return f"{organizer.first_name} {organizer.last_name}".strip()
+
+
+class AdminDashboardRecentUserSerializer(serializers.ModelSerializer):
+    """Informations minimales sur un utilisateur récent."""
+
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "first_name",
+            "last_name",
+            "is_active",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class AdminDashboardAvailabilitySerializer(serializers.Serializer):
+    """Disponibilité des modules alimentant le dashboard admin."""
+
+    tickets = serializers.BooleanField(read_only=True)
+    payments = serializers.BooleanField(read_only=True)
+    certificates = serializers.BooleanField(read_only=True)
+    notifications = serializers.BooleanField(read_only=True)
+    supervision_alerts = serializers.BooleanField(read_only=True)
+
+
+class AdminDashboardSerializer(serializers.Serializer):
+    """Réponse read-only du dashboard administrateur."""
+
+    summary = AdminDashboardSummarySerializer(read_only=True)
+    recent_events = AdminDashboardRecentEventSerializer(
+        many=True,
+        read_only=True,
+    )
+    recent_users = AdminDashboardRecentUserSerializer(
+        many=True,
+        read_only=True,
+    )
+    availability = AdminDashboardAvailabilitySerializer(read_only=True)
+    payment_statistics_available = serializers.BooleanField(read_only=True)
+    financial_statistics = serializers.JSONField(
+        allow_null=True,
+        read_only=True,
+    )
+    alerts = serializers.JSONField(allow_null=True, read_only=True)
+
+class DashboardStatisticsPeriodSerializer(serializers.Serializer):
+    """Période et granularité appliquées aux statistiques."""
+
+    start_date = serializers.CharField(read_only=True)
+    end_date = serializers.CharField(read_only=True)
+    granularity = serializers.CharField(read_only=True)
+    timezone = serializers.CharField(read_only=True)
+
+
+class StatisticsTimeSeriesPointSerializer(serializers.Serializer):
+    """Valeur agrégée pour une date ou un mois."""
+
+    period = serializers.CharField(read_only=True)
+    count = serializers.IntegerField(read_only=True)
+
+
+class StatisticsStatusCountSerializer(serializers.Serializer):
+    """Répartition par statut."""
+
+    status = serializers.CharField(read_only=True)
+    count = serializers.IntegerField(read_only=True)
+
+
+class StatisticsFormatCountSerializer(serializers.Serializer):
+    """Répartition par format d'événement."""
+
+    format = serializers.CharField(read_only=True)
+    count = serializers.IntegerField(read_only=True)
+
+
+class StatisticsRoleCountSerializer(serializers.Serializer):
+    """Répartition par rôle utilisateur."""
+
+    role = serializers.CharField(read_only=True)
+    count = serializers.IntegerField(read_only=True)
+
+
+class OrganizerStatisticsSerializer(serializers.Serializer):
+    """Statistiques filtrées de l'organisateur."""
+
+    period = DashboardStatisticsPeriodSerializer(read_only=True)
+    events_created_over_time = StatisticsTimeSeriesPointSerializer(
+        many=True,
+        read_only=True,
+    )
+    registrations_over_time = StatisticsTimeSeriesPointSerializer(
+        many=True,
+        read_only=True,
+    )
+    events_by_status = StatisticsStatusCountSerializer(
+        many=True,
+        read_only=True,
+    )
+    events_by_format = StatisticsFormatCountSerializer(
+        many=True,
+        read_only=True,
+    )
+    registrations_by_status = StatisticsStatusCountSerializer(
+        many=True,
+        read_only=True,
+    )
+    payment_statistics_available = serializers.BooleanField(read_only=True)
+    financial_statistics = serializers.JSONField(
+        allow_null=True,
+        read_only=True,
+    )
+
+
+class AdminStatisticsSerializer(serializers.Serializer):
+    """Statistiques globales de l'administrateur."""
+
+    period = DashboardStatisticsPeriodSerializer(read_only=True)
+    users_created_over_time = StatisticsTimeSeriesPointSerializer(
+        many=True,
+        read_only=True,
+    )
+    events_created_over_time = StatisticsTimeSeriesPointSerializer(
+        many=True,
+        read_only=True,
+    )
+    registrations_over_time = StatisticsTimeSeriesPointSerializer(
+        many=True,
+        read_only=True,
+    )
+    events_by_status = StatisticsStatusCountSerializer(
+        many=True,
+        read_only=True,
+    )
+    events_by_format = StatisticsFormatCountSerializer(
+        many=True,
+        read_only=True,
+    )
+    registrations_by_status = StatisticsStatusCountSerializer(
+        many=True,
+        read_only=True,
+    )
+    users_by_role = StatisticsRoleCountSerializer(
+        many=True,
+        read_only=True,
+    )
+    payment_statistics_available = serializers.BooleanField(read_only=True)
+    financial_statistics = serializers.JSONField(
         allow_null=True,
         read_only=True,
     )

@@ -294,3 +294,112 @@ class ParticipantDashboardAPITests(TestCase):
         response = self.client.get(reverse("dashboards:participant"))
 
         self.assertEqual(response.status_code, 403)
+class AdminDashboardAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        self.admin = self._create_user(
+            "admin-dashboard@example.test",
+            "+221770000021",
+            is_staff=True,
+        )
+        self.participant = self._create_user(
+            "participant-admin-dashboard@example.test",
+            "+221770000022",
+            role=ROLE_PARTICIPANT,
+        )
+        self.organizer = self._create_user(
+            "organizer-admin-dashboard@example.test",
+            "+221770000023",
+            role=ROLE_ORGANIZER,
+        )
+        self.inactive_user = self._create_user(
+            "inactive-admin-dashboard@example.test",
+            "+221770000024",
+            is_active=False,
+        )
+
+        self.category = Category.objects.create(name="Admin Dashboard Test")
+        start_at = timezone.now() + timedelta(days=3)
+
+        self.event = Event.objects.create(
+            organizer=self.organizer,
+            category=self.category,
+            title="Événement global",
+            short_description="Description courte de test",
+            description="Description complète de test",
+            format=EventFormat.IN_PERSON,
+            participation_type=ParticipationType.FREE,
+            start_at=start_at,
+            end_at=start_at + timedelta(hours=2),
+            capacity_type=CapacityType.UNLIMITED,
+            capacity_limit=None,
+            status=EventStatus.PUBLISHED,
+        )
+
+        Registration.objects.create(
+            event=self.event,
+            participant=self.participant,
+            reference="EVF-REG-2026-ADMIN1",
+            status=RegistrationStatus.CONFIRMED,
+        )
+
+    @staticmethod
+    def _create_user(
+        email,
+        phone,
+        *,
+        role=None,
+        is_active=True,
+        is_staff=False,
+    ):
+        user = User.objects.create_user(
+            email=email,
+            password="Test-Password-123!",
+            first_name="Test",
+            last_name="Dashboard",
+            phone=phone,
+            is_active=is_active,
+            is_staff=is_staff,
+        )
+        if role:
+            user.add_role(role)
+        return user
+
+    def test_admin_dashboard_returns_global_summary(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.get(reverse("dashboards:admin"))
+
+        self.assertEqual(response.status_code, 200)
+        data = response.data["data"]
+        summary = data["summary"]
+
+        self.assertEqual(summary["total_users"], 4)
+        self.assertEqual(summary["active_users"], 3)
+        self.assertEqual(summary["inactive_users"], 1)
+        self.assertEqual(summary["participant_users"], 1)
+        self.assertEqual(summary["organizer_users"], 1)
+        self.assertEqual(summary["admin_users"], 1)
+
+        self.assertEqual(summary["total_events"], 1)
+        self.assertEqual(summary["published_events"], 1)
+        self.assertEqual(summary["upcoming_events"], 1)
+
+        self.assertEqual(summary["total_registrations"], 1)
+        self.assertEqual(summary["confirmed_registrations"], 1)
+        self.assertEqual(summary["attended_registrations"], 0)
+        self.assertEqual(summary["attendance_rate"], 0.0)
+
+        self.assertEqual(len(data["recent_events"]), 1)
+        self.assertEqual(len(data["recent_users"]), 4)
+        self.assertFalse(data["payment_statistics_available"])
+        self.assertIsNone(data["financial_statistics"])
+        self.assertIsNone(data["alerts"])
+
+    def test_non_admin_cannot_view_admin_dashboard(self):
+        self.client.force_authenticate(user=self.organizer)
+
+        response = self.client.get(reverse("dashboards:admin"))
+
+        self.assertEqual(response.status_code, 403)
