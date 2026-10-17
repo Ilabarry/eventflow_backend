@@ -93,3 +93,14 @@ ENTITY_ID_MAX_LENGTH = 64
 # Noms des « scopes » ; les débits sont définis dans settings.py.
 THROTTLE_SCOPE_READ = "supervision_read"
 THROTTLE_SCOPE_ACTION = "supervision_action"
+
+
+# ==================================================================
+# ACTIONS SUR LES COMPTES (phase S2)
+# ==================================================================
+# Raison obligatoire pour suspendre ou réactiver un compte.
+REASON_MIN_LENGTH = 5
+REASON_MAX_LENGTH = 500
+
+# Nombre d'éléments récents affichés par rubrique dans /activity/.
+ACTIVITY_PREVIEW_SIZE = 10
