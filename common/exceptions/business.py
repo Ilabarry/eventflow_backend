@@ -333,3 +333,24 @@ class TicketOwnershipError(BusinessException):
     status_code = status.HTTP_403_FORBIDDEN
     default_detail = "Vous n'êtes pas autorisé à accéder à ce ticket."
     default_code = "ticket_ownership_error"
+
+
+class BusinessException(APIException):
+    status_code = 400
+    default_detail = "Une erreur métier est survenue."
+    default_code = "business_error"
+
+    def __init__(self, detail=None, code=None, status_code=None):
+        super().__init__(detail=detail, code=code)
+        if status_code is not None:
+            self.status_code = status_code
+
+
+# ==================================================================
+# ATTENDANCE — Exceptions spécifiques
+# ==================================================================
+class InvalidQRCode(BusinessException):
+    """Levée lorsqu'un QR code est invalide ou falsifié."""
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "QR code invalide ou falsifié."
+    default_code = "invalid_qr_code"

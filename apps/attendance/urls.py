@@ -14,6 +14,7 @@ from apps.attendance.views import (
     MarkAbsentView,
     MyAttendanceView,
     RegistrationAttendanceView,
+    QRCheckInView,
 )
 
 app_name = "attendance"
@@ -22,6 +23,7 @@ urlpatterns = [
     # Organisateur
     path("attendance/check-in/", CheckInView.as_view(), name="attendance-check-in"),
     path("attendance/mark-absent/", MarkAbsentView.as_view(), name="attendance-mark-absent"),
+    path("attendance/check-in/qr/", QRCheckInView.as_view(), name="attendance-check-in-qr"),
 
     path(
         "events/<uuid:event_id>/attendance/",

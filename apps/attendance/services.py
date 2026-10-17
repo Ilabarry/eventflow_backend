@@ -39,6 +39,7 @@ from apps.registrations.models import Registration
 from common.exceptions.business import (
     AlreadyCheckedIn,
     AttendanceRegistrationNotFound,
+     InvalidQRCode,
 )
 
 logger = logging.getLogger(__name__)
@@ -226,4 +227,73 @@ class AttendanceService:
             "Marked absent | registration=%s | event=%s | by=%s",
             registration.id, event.id, performed_by.id,
         )
+        return attendance
+
+
+    # ------------------------------------------------------------------
+    # CHECK-IN PAR QR CODE
+    # ------------------------------------------------------------------
+    @staticmethod
+    @transaction.atomic
+    def check_in_by_qr(*, qr_code: str, performed_by) -> Attendance:
+        """
+        Enregistre la présence via un QR code scanné.
+
+        Sécurité :
+            - Vérifie la signature HMAC du QR (résiste à la falsification).
+            - Vérifie que le ticket existe et est VALID.
+            - Vérifie que le ticket appartient au bon événement.
+            - Marque le ticket comme USED (via TicketService.mark_as_used).
+            - Crée la présence (réutilise check_in()).
+
+        Args:
+            qr_code: le payload brut scanné (format: reference|signature).
+            performed_by: l'utilisateur qui fait le check-in.
+
+        Raises:
+            BusinessException(400): si le QR est invalide ou falsifié.
+            TicketNotUsable(409): si le ticket est déjà USED, EXPIRED ou CANCELLED.
+            AlreadyCheckedIn(409): si la présence existe déjà.
+            UnauthorizedEventAccess(403): si l'organisateur n'est pas le bon.
+        """
+        from apps.tickets.services import TicketService
+        from apps.tickets.constants import TicketStatus
+        from common.exceptions.business import BusinessException, TicketNotUsable
+
+        # 1. Vérifier la signature du QR
+        ticket = TicketService.verify_qr_payload(qr_code)
+        if ticket is None:
+            raise InvalidQRCode()
+
+        # 2. Vérifier que le ticket est VALID
+        if ticket.status != TicketStatus.VALID:
+            raise TicketNotUsable(
+                detail=f"Ce ticket n'est pas utilisable (statut: {ticket.status})."
+            )
+
+        # 3. Vérifier que le ticket appartient au bon événement
+        if ticket.registration.event_id != ticket.registration.event_id:
+            raise BusinessException(
+                detail="Le ticket n'appartient pas à cet événement.",
+                status_code=400,
+            )
+
+        # 4. Vérifier l'autorisation de l'organisateur
+        ensure_can_manage_event(performed_by, ticket.registration.event)
+
+        # 5. Faire le check-in (réutilise la logique existante)
+        attendance = AttendanceService.check_in(
+            registration_id=ticket.registration.id,
+            performed_by=performed_by,
+            method=CheckInMethod.QR_CODE,
+        )
+
+        # 6. Marquer le ticket comme USED
+        TicketService.mark_as_used(ticket=ticket)
+
+        logger.info(
+            "QR check-in success | ticket=%s | registration=%s | by=%s",
+            ticket.reference, ticket.registration.id, performed_by.id,
+        )
+
         return attendance

@@ -1,4 +1,13 @@
 """
+Filtres génériques pour les listes d'Attendance.
+"""
+
+import django_filters
+
+from apps.attendance.constants import AttendanceStatus, CheckInMethod
+from apps.attendance.models import Attendance
+
+"""
 Filtres de la liste d'accueil d'un événement (organisateur).
 
 La liste porte sur les INSCRIPTIONS confirmées de l'événement, chacune
@@ -76,3 +85,22 @@ class EventAttendanceFilter(django_filters.FilterSet):
             # Pas de fiche de présence du tout
             return queryset.filter(attendance__isnull=True)
         return queryset.filter(attendance__status=value)
+
+
+
+class AttendanceFilter(django_filters.FilterSet):
+    """Filtre pour GET /api/attendance/me/ et les listes globales."""
+
+    status = django_filters.ChoiceFilter(choices=AttendanceStatus.choices)
+    check_in_method = django_filters.ChoiceFilter(choices=CheckInMethod.choices)
+    event = django_filters.UUIDFilter(field_name="registration__event__id")
+    checked_in_after = django_filters.IsoDateTimeFilter(
+        field_name="checked_in_at", lookup_expr="gte"
+    )
+    checked_in_before = django_filters.IsoDateTimeFilter(
+        field_name="checked_in_at", lookup_expr="lte"
+    )
+
+    class Meta:
+        model = Attendance
+        fields = ["status", "check_in_method"]
