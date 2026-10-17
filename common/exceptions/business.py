@@ -184,7 +184,6 @@ class PaymentRequired(BusinessException):
     default_code = "payment_required"
 
 
-
     # ==================================================================
 # PAYMENT — Exceptions spécifiques
 # ==================================================================
@@ -249,3 +248,37 @@ class PaymentOwnershipError(BusinessException):
     status_code = status.HTTP_403_FORBIDDEN
     default_detail = "Vous n'êtes pas autorisé à accéder à ce paiement."
     default_code = "payment_ownership_error"
+
+# ==================================================================
+# ATTENDANCE — Exceptions spécifiques
+# ==================================================================
+class AttendanceRegistrationNotFound(BusinessException):
+    """Levée lorsque l'inscription visée par un check-in n'existe pas."""
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "Inscription introuvable."
+    default_code = "attendance_registration_not_found"
+
+
+class RegistrationNotEligibleForCheckIn(BusinessException):
+    """
+    Levée lorsque l'inscription ne permet pas d'enregistrer une présence.
+
+    Exemples : inscription annulée, inscription en attente de paiement.
+    """
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Cette inscription ne permet pas d'enregistrer une présence."
+    default_code = "registration_not_eligible_for_check_in"
+
+
+class CheckInNotOpen(BusinessException):
+    """Levée lorsqu'on tente un check-in en dehors de la fenêtre autorisée."""
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Le check-in n'est pas ouvert pour cet événement."
+    default_code = "check_in_not_open"
+
+
+class AlreadyCheckedIn(BusinessException):
+    """Levée lorsque le participant est déjà enregistré comme présent."""
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Ce participant est déjà enregistré comme présent."
+    default_code = "already_checked_in"
