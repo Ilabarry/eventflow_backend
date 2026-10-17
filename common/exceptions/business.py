@@ -282,3 +282,54 @@ class AlreadyCheckedIn(BusinessException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = "Ce participant est déjà enregistré comme présent."
     default_code = "already_checked_in"
+
+
+# ==================================================================
+# TICKETS — Exceptions spécifiques
+# ==================================================================
+class TicketTypeNotFound(BusinessException):
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "Type de ticket introuvable."
+    default_code = "ticket_type_not_found"
+
+
+class TicketTypeSoldOut(BusinessException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Ce type de ticket est épuisé."
+    default_code = "ticket_type_sold_out"
+
+
+class TicketTypeNotOnSale(BusinessException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Ce type de ticket n'est pas en vente actuellement."
+    default_code = "ticket_type_not_on_sale"
+
+
+class TicketTypeFromOtherEvent(BusinessException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Ce type de ticket n'appartient pas à cet événement."
+    default_code = "ticket_type_from_other_event"
+
+
+class TicketAlreadyExists(BusinessException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Un ticket existe déjà pour cette inscription."
+    default_code = "ticket_already_exists"
+
+
+class TicketNotFound(BusinessException):
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "Ticket introuvable."
+    default_code = "ticket_not_found"
+
+
+class TicketNotUsable(BusinessException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Ce ticket n'est plus utilisable."
+    default_code = "ticket_not_usable"
+
+
+class TicketOwnershipError(BusinessException):
+    status_code = status.HTTP_403_FORBIDDEN
+    default_detail = "Vous n'êtes pas autorisé à accéder à ce ticket."
+    default_code = "ticket_ownership_error"

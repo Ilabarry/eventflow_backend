@@ -140,3 +140,29 @@ ALL_PAYMENT_PERMISSIONS = (
     (PERM_PAYMENT_MANAGE, "Administrer les paiements"),
     (PERM_PAYMENT_VIEW_STATS, "Voir les statistiques de paiement"),
 )
+
+# ------------------------------------------------------------------
+# Permissions du module Tickets
+# ------------------------------------------------------------------
+PERM_TICKET_TYPE_CREATE = "ticket_type.create"
+PERM_TICKET_TYPE_VIEW = "ticket_type.view"
+PERM_TICKET_TYPE_UPDATE = "ticket_type.update"
+PERM_TICKET_TYPE_DELETE = "ticket_type.delete"
+
+PERM_TICKET_VIEW_OWN = "ticket.view_own"
+PERM_TICKET_VIEW_EVENT = "ticket.view_event"
+PERM_TICKET_ISSUE = "ticket.issue"
+PERM_TICKET_CANCEL = "ticket.cancel"
+PERM_TICKET_VIEW_ALL = "ticket.view_all"
+
+ALL_TICKET_PERMISSIONS = (
+    (PERM_TICKET_TYPE_CREATE, "Créer un type de ticket"),
+    (PERM_TICKET_TYPE_VIEW, "Consulter un type de ticket"),
+    (PERM_TICKET_TYPE_UPDATE, "Modifier un type de ticket"),
+    (PERM_TICKET_TYPE_DELETE, "Supprimer/désactiver un type de ticket"),
+    (PERM_TICKET_VIEW_OWN, "Voir ses propres tickets"),
+    (PERM_TICKET_VIEW_EVENT, "Voir les tickets d'un événement"),
+    (PERM_TICKET_ISSUE, "Émettre un ticket"),
+    (PERM_TICKET_CANCEL, "Annuler un ticket"),
+    (PERM_TICKET_VIEW_ALL, "Voir tous les tickets (admin)"),
+)
