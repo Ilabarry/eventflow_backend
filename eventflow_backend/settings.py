@@ -157,6 +157,12 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     # Handler d'exceptions personnalisé
     'EXCEPTION_HANDLER': 'common.exceptions.handlers.custom_exception_handler',
+    # Débits utilisés UNIQUEMENT par les vues qui déclarent un scope
+    # (aucune limitation n'est appliquée par défaut aux autres modules).
+    'DEFAULT_THROTTLE_RATES': {
+        'supervision_read': config('SUPERVISION_READ_RATE', default='300/min'),
+        'supervision_action': config('SUPERVISION_ACTION_RATE', default='30/min'),
+    },
 }
 
 SIMPLE_JWT = {
