@@ -24,6 +24,8 @@ urlpatterns = [
     path("api/", include("apps.events.urls")),
     path("api/", include("apps.registrations.urls")),
     path("api/", include("apps.attendance.urls")),
+    path("api/", include("apps.dashboards.urls")),
+    path("api/notifications/", include("apps.notifications.urls")),
 ]
 
 # Servir les fichiers médias en développement
