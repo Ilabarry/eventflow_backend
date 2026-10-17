@@ -162,6 +162,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "attendance_checkin": "60/min",
         "attendance_qr": "120/min",
+        "certificate_verify": "30/min",
     }
 }
 
@@ -212,7 +213,7 @@ CORS_ALLOW_CREDENTIALS = True
 # le check-in est déjà ouvert.
 ATTENDANCE_CHECK_IN_OPENS_BEFORE_MINUTES = config(
     "ATTENDANCE_CHECK_IN_OPENS_BEFORE_MINUTES",
-    default=45,
+    default=120,
     cast=int,
 )
 
@@ -228,3 +229,12 @@ if not DEBUG:
     SECURE_HSTS_PRELOAD = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
+
+    # ------------------------------------------------------------------
+# CERTIFICATES
+# ------------------------------------------------------------------
+FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:4200")
+CERTIFICATE_VERIFY_URL_BASE = config(
+    "CERTIFICATE_VERIFY_URL_BASE",
+    default=f"{FRONTEND_URL}/verify",
+)

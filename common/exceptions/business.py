@@ -354,3 +354,52 @@ class InvalidQRCode(BusinessException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "QR code invalide ou falsifié."
     default_code = "invalid_qr_code"
+
+# ==================================================================
+# CERTIFICATES — Exceptions spécifiques
+# ==================================================================
+class CertificateNotFound(BusinessException):
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "Certificat introuvable."
+    default_code = "certificate_not_found"
+
+
+class CertificateNotEligible(BusinessException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Ce participant n'est pas éligible à un certificat."
+    default_code = "certificate_not_eligible"
+
+
+class CertificateAlreadyExists(BusinessException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Un certificat existe déjà pour cette inscription."
+    default_code = "certificate_already_exists"
+
+
+class CertificateAlreadyRevoked(BusinessException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Ce certificat est déjà révoqué."
+    default_code = "certificate_already_revoked"
+
+
+class CertificateGenerationError(BusinessException):
+    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+    default_detail = "Erreur lors de la génération du certificat."
+    default_code = "certificate_generation_error"
+
+
+class AttendanceRequired(BusinessException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Le participant doit être présent pour obtenir un certificat."
+    default_code = "attendance_required"
+
+
+class EventNotEnded(BusinessException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "L'événement n'est pas encore terminé."
+    default_code = "event_not_ended"
+
+class InvalidCertificateState(BusinessException):
+    status_code = 400
+    default_detail = "L'état du certificat ne permet pas cette action."
+    default_code = "invalid_certificate_state"

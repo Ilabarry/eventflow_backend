@@ -166,3 +166,20 @@ ALL_TICKET_PERMISSIONS = (
     (PERM_TICKET_CANCEL, "Annuler un ticket"),
     (PERM_TICKET_VIEW_ALL, "Voir tous les tickets (admin)"),
 )
+
+# ------------------------------------------------------------------
+# Permissions du module Certificates
+# ------------------------------------------------------------------
+PERM_CERTIFICATE_VIEW = "certificate.view"
+PERM_CERTIFICATE_GENERATE = "certificate.generate"
+PERM_CERTIFICATE_DOWNLOAD = "certificate.download"
+PERM_CERTIFICATE_REVOKE = "certificate.revoke"
+PERM_CERTIFICATE_VIEW_EVENT = "certificate.view_event"
+
+ALL_CERTIFICATE_PERMISSIONS = (
+    (PERM_CERTIFICATE_VIEW, "Voir ses certificats"),
+    (PERM_CERTIFICATE_GENERATE, "Générer un certificat"),
+    (PERM_CERTIFICATE_DOWNLOAD, "Télécharger un certificat"),
+    (PERM_CERTIFICATE_REVOKE, "Révoquer un certificat"),
+    (PERM_CERTIFICATE_VIEW_EVENT, "Voir les certificats d'un événement"),
+)

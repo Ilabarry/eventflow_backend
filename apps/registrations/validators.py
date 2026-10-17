@@ -22,9 +22,6 @@ def validate_event_is_open(event) -> None:
     Règles :
         - status = PUBLISHED (pas DRAFT, pas CANCELLED, pas COMPLETED)
         - end_at > now() (pas encore terminé)
-
-    Raises:
-        ValidationError: Si l'événement n'accepte pas d'inscriptions.
     """
     if event is None:
         raise ValidationError(_("L'événement est obligatoire."))
@@ -57,16 +54,13 @@ def validate_event_is_open(event) -> None:
 # ==================================================================
 # VALIDATION : Type de participation
 # ==================================================================
-def validate_participation_type(event, ticket_type_id=None) -> None:
+def validate_participation_type(event, ticket_type=None) -> None:
     """
     Vérifie que le type de participation est cohérent.
 
     Règles :
         - FREE : pas de ticket_type requis.
-        - PAID : ticket_type requis (futur module Ticket).
-
-    Note : tant que le module Ticket n'existe pas, on refuse
-    les inscriptions aux événements payants.
+        - PAID : ticket_type requis.
 
     Raises:
         ValidationError: Si le type de participation est incohérent.
@@ -75,12 +69,11 @@ def validate_participation_type(event, ticket_type_id=None) -> None:
         return
 
     if event.participation_type == ParticipationType.PAID:
-        # Tant que le module Ticket n'existe pas, on refuse
-        if ticket_type_id is None:
+        if ticket_type is None:
             raise ValidationError(
                 _(
-                    "Cet événement est payant. Les inscriptions payantes "
-                    "seront disponibles prochainement."
+                    "Cet événement est payant. Vous devez sélectionner "
+                    "un type de ticket."
                 ),
-                code="paid_not_supported_yet",
+                code="ticket_type_required",
             )
