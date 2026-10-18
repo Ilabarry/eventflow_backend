@@ -27,8 +27,8 @@ class AuditAction(models.TextChoices):
     # Rôles
     ROLE_GRANTED = "ROLE_GRANTED", _("Rôle attribué")
     ROLE_REVOKED = "ROLE_REVOKED", _("Rôle retiré")
-    # Événements
-    EVENT_PUBLISHED = "EVENT_PUBLISHED", _("Événement publié")
+    # Événements (l'admin annule mais ne publie pas : décision B du 17/10,
+    # la publication reste la décision de l'organisateur)
     EVENT_CANCELLED = "EVENT_CANCELLED", _("Événement annulé")
     # Catégories
     CATEGORY_CREATED = "CATEGORY_CREATED", _("Catégorie créée")

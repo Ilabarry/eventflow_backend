@@ -3,6 +3,7 @@ Selectors du module Supervision : lectures en base.
 
 Phase S1 : journal d'audit.
 Phase S2 : utilisateurs, activité d'un utilisateur, organisateurs.
+Phase S3 : événements et catégories.
 
 Les compteurs sont calculés en SQL par des SOUS-REQUÊTES (une par compteur)
 plutôt que par des jointures + COUNT : avec plusieurs jointures, les lignes
@@ -19,7 +20,7 @@ from apps.accounts.models import User
 from apps.attendance.constants import AttendanceStatus
 from apps.attendance.models import Attendance
 from apps.events.constants import EventStatus
-from apps.events.models import Event
+from apps.events.models import Category, Event
 from apps.registrations.constants import RegistrationStatus
 from apps.registrations.models import Registration
 from apps.supervision.constants import ACTIVITY_PREVIEW_SIZE
@@ -31,18 +32,21 @@ ACTIVE_REGISTRATION_STATUSES = (RegistrationStatus.PENDING, RegistrationStatus.C
 # ==================================================================
 # OUTIL : compteur par sous-requête
 # ==================================================================
-def _count_of(queryset, user_field: str):
+def _count_of(queryset, link_field: str):
     """
-    Compte les lignes de `queryset` rattachées à l'utilisateur courant.
+    Compte les lignes de `queryset` rattachées à l'objet de la ligne courante.
 
-    Exemple : _count_of(Event.objects.all(), "organizer")
-        → nombre d'événements dont organizer = l'utilisateur de la ligne.
+    Exemples :
+        _count_of(Event.objects.all(), "organizer")
+            → sur une liste d'utilisateurs : nombre d'événements organisés ;
+        _count_of(Registration.objects.all(), "event")
+            → sur une liste d'événements : nombre d'inscriptions.
     Coalesce(..., 0) renvoie 0 au lieu de NULL quand il n'y a rien.
     """
     subquery = (
-        queryset.filter(**{user_field: OuterRef("pk")})
+        queryset.filter(**{link_field: OuterRef("pk")})
         .order_by()
-        .values(user_field)
+        .values(link_field)
         .annotate(total=Count("pk"))
         .values("total")[:1]
     )
@@ -156,3 +160,62 @@ def get_organizers() -> QuerySet[User]:
 def get_organizer_by_id(user_id) -> User | None:
     """Un organisateur avec ses compteurs, ou None (inexistant ou pas organisateur)."""
     return get_organizers().filter(pk=user_id).first()
+
+
+# ==================================================================
+# ÉVÉNEMENTS (S3)
+# ==================================================================
+def get_supervision_events() -> QuerySet[Event]:
+    """
+    Tous les événements (tous statuts), organisateur et catégorie préchargés,
+    avec le nombre d'inscrits confirmés et de présents.
+    """
+    return (
+        Event.objects.select_related("organizer", "category")
+        .annotate(
+            registrations_confirmed=_count_of(
+                Registration.objects.filter(status=RegistrationStatus.CONFIRMED), "event",
+            ),
+            attendances_present=_count_of(
+                Attendance.objects.filter(status=AttendanceStatus.PRESENT), "registration__event",
+            ),
+        )
+        .order_by("-start_at")
+    )
+
+
+def get_supervision_event_detail(event_id) -> Event | None:
+    """Un événement avec, en plus, les inscriptions en attente et annulées."""
+    return (
+        get_supervision_events()
+        .annotate(
+            registrations_pending=_count_of(
+                Registration.objects.filter(status=RegistrationStatus.PENDING), "event",
+            ),
+            registrations_cancelled=_count_of(
+                Registration.objects.filter(status=RegistrationStatus.CANCELLED), "event",
+            ),
+        )
+        .filter(pk=event_id)
+        .first()
+    )
+
+
+# ==================================================================
+# CATÉGORIES (S3)
+# ==================================================================
+def get_supervision_categories() -> QuerySet[Category]:
+    """Toutes les catégories (actives ou non) avec leur nombre d'événements."""
+    return (
+        Category.objects.annotate(
+            events_total=_count_of(Event.objects.all(), "category"),
+            events_published=_count_of(
+                Event.objects.filter(status=EventStatus.PUBLISHED), "category",
+            ),
+        )
+        .order_by("name")
+    )
+
+
+def get_supervision_category_by_id(category_id) -> Category | None:
+    return get_supervision_categories().filter(pk=category_id).first()

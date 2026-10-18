@@ -10,31 +10,50 @@ Une vue ne peut donc pas « oublier » une protection.
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, IsAuthenticated
 from rest_framework.views import APIView
 
 from apps.accounts.constants import ALL_ROLES
+from apps.events.constants import EventFormat, EventStatus
 from apps.supervision.constants import AuditAction, AuditEntity, AuditResult
-from apps.supervision.filters import AuditLogFilter, OrganizerFilter, SupervisionUserFilter
+from apps.supervision.filters import (
+    AuditLogFilter,
+    OrganizerFilter,
+    SupervisionCategoryFilter,
+    SupervisionEventFilter,
+    SupervisionUserFilter,
+)
 from apps.supervision.permissions import IsSupervisionAdmin
 from apps.supervision.selectors import (
     get_audit_log_by_id,
     get_audit_logs,
     get_organizer_by_id,
     get_organizers,
+    get_supervision_categories,
+    get_supervision_category_by_id,
+    get_supervision_event_detail,
+    get_supervision_events,
     get_supervision_user_detail,
     get_supervision_users,
     get_user_activity,
 )
 from apps.supervision.serializers import (
-    AccountStatusActionSerializer,
     AuditLogSerializer,
     OrganizerSerializer,
+    ReasonSerializer,
+    SupervisionCategorySerializer,
+    SupervisionCategoryWriteSerializer,
+    SupervisionEventDetailSerializer,
+    SupervisionEventSerializer,
     SupervisionUserDetailSerializer,
     SupervisionUserSerializer,
     UserActivitySerializer,
 )
-from apps.supervision.services import UserSupervisionService
+from apps.supervision.services import (
+    CategorySupervisionService,
+    EventSupervisionService,
+    UserSupervisionService,
+)
 from apps.supervision.throttles import SupervisionActionThrottle, SupervisionReadThrottle
 from common.pagination.standard import StandardPagination
 from common.responses.standard import APIResponse
@@ -42,6 +61,8 @@ from common.responses.standard import APIResponse
 TAG_AUDIT = ["Supervision — Audit"]
 TAG_USERS = ["Supervision — Utilisateurs"]
 TAG_ORGANIZERS = ["Supervision — Organisateurs"]
+TAG_EVENTS = ["Supervision — Événements"]
+TAG_CATEGORIES = ["Supervision — Catégories"]
 
 ERR_401 = OpenApiResponse(description="Authentification requise (jeton JWT manquant ou expiré).")
 ERR_403 = OpenApiResponse(description="Accès réservé aux administrateurs.")
@@ -54,16 +75,19 @@ ERR_400_FILTER = OpenApiResponse(description="Filtre invalide.")
 # BASES COMMUNES
 # ==================================================================
 class SupervisionAPIView(APIView):
-    """Base de TOUTES les vues de supervision (lecture)."""
+    """Base de TOUTES les vues de supervision."""
 
     permission_classes = [IsAuthenticated, IsSupervisionAdmin]
-    throttle_classes = [SupervisionReadThrottle]
 
-
-class SupervisionActionAPIView(SupervisionAPIView):
-    """Base des vues d'ACTION (débit plus strict)."""
-
-    throttle_classes = [SupervisionActionThrottle]
+    def get_throttles(self):
+        """
+        Le débit dépend de la méthode HTTP, pas de la vue : une même route
+        peut lire (GET, débit large) et agir (POST, PATCH, DELETE, débit
+        strict), comme /categories/ ou /categories/{id}/.
+        """
+        if self.request.method in SAFE_METHODS:
+            return [SupervisionReadThrottle()]
+        return [SupervisionActionThrottle()]
 
 
 def paginated_response(request, view, queryset, serializer_class, message):
@@ -74,6 +98,14 @@ def paginated_response(request, view, queryset, serializer_class, message):
     return APIResponse.success(
         data=paginator.get_paginated_response(serializer.data).data,
         message=message,
+    )
+
+
+def invalid_data(serializer):
+    return APIResponse.error(
+        message="Données invalides.",
+        errors=serializer.errors,
+        status_code=status.HTTP_400_BAD_REQUEST,
     )
 
 
@@ -217,13 +249,9 @@ def _account_status_action(request, pk, service_action, success_message):
     Les erreurs métier du service (403, 404, 409) sont converties
     automatiquement par le handler global.
     """
-    serializer = AccountStatusActionSerializer(data=request.data)
+    serializer = ReasonSerializer(data=request.data)
     if not serializer.is_valid():
-        return APIResponse.error(
-            message="Données invalides.",
-            errors=serializer.errors,
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
+        return invalid_data(serializer)
     service_action(
         actor=request.user,
         user_id=pk,
@@ -246,7 +274,7 @@ _ACTION_ERRORS = {
 }
 
 
-class UserSuspendView(SupervisionActionAPIView):
+class UserSuspendView(SupervisionAPIView):
     """POST /api/supervision/users/{id}/suspend/"""
 
     @extend_schema(
@@ -256,21 +284,21 @@ class UserSuspendView(SupervisionActionAPIView):
             "Désactive le compte (plus de connexion possible), révoque tous ses refresh "
             "tokens et enregistre l'action dans le journal d'audit. Raison obligatoire."
         ),
-        request=AccountStatusActionSerializer,
+        request=ReasonSerializer,
         responses={200: SupervisionUserDetailSerializer, **_ACTION_ERRORS},
     )
     def post(self, request, pk):
         return _account_status_action(request, pk, UserSupervisionService.suspend, "Compte suspendu.")
 
 
-class UserActivateView(SupervisionActionAPIView):
+class UserActivateView(SupervisionAPIView):
     """POST /api/supervision/users/{id}/activate/"""
 
     @extend_schema(
         tags=TAG_USERS,
         summary="Réactiver un compte",
         description="Réactive un compte suspendu. L'utilisateur devra se reconnecter. Raison obligatoire.",
-        request=AccountStatusActionSerializer,
+        request=ReasonSerializer,
         responses={200: SupervisionUserDetailSerializer, **_ACTION_ERRORS},
     )
     def post(self, request, pk):
@@ -318,3 +346,255 @@ class OrganizerDetailView(SupervisionAPIView):
         if organizer is None:
             return not_found("Organisateur introuvable.")
         return APIResponse.success(data=OrganizerSerializer(organizer).data, message="Fiche organisateur.")
+
+
+# ==================================================================
+# ÉVÉNEMENTS (phase S3) — l'administrateur consulte et ANNULE
+# ==================================================================
+class SupervisionEventListView(SupervisionAPIView):
+    """GET /api/supervision/events/"""
+
+    @extend_schema(
+        tags=TAG_EVENTS,
+        summary="Liste des événements",
+        description="Tous les événements, quel que soit leur statut (brouillons compris).",
+        parameters=[
+            OpenApiParameter("search", str, description="Titre ou e-mail de l'organisateur."),
+            OpenApiParameter("status", str, enum=EventStatus.values),
+            OpenApiParameter("format", str, enum=EventFormat.values),
+            OpenApiParameter("organizer", str, description="UUID de l'organisateur."),
+            OpenApiParameter("category", str, description="UUID de la catégorie."),
+            OpenApiParameter("city", str),
+            OpenApiParameter("starts_from", str, description="AAAA-MM-JJ (inclus)."),
+            OpenApiParameter("starts_to", str, description="AAAA-MM-JJ (inclus)."),
+            OpenApiParameter(
+                "ordering", str,
+                description="start_at, created_at, title, registrations_confirmed (préfixe - : décroissant).",
+            ),
+        ],
+        responses={200: SupervisionEventSerializer(many=True), 400: ERR_400_FILTER,
+                   401: ERR_401, 403: ERR_403, 429: ERR_429},
+    )
+    def get(self, request):
+        filterset = SupervisionEventFilter(request.GET, queryset=get_supervision_events())
+        if not filterset.is_valid():
+            return invalid_filters(filterset)
+        return paginated_response(request, self, filterset.qs, SupervisionEventSerializer, "Liste des événements.")
+
+
+class SupervisionEventDetailView(SupervisionAPIView):
+    """GET /api/supervision/events/{id}/"""
+
+    @extend_schema(
+        tags=TAG_EVENTS,
+        summary="Fiche d'un événement",
+        description="Informations de l'événement et compteurs d'inscriptions et de présences.",
+        responses={200: SupervisionEventDetailSerializer, 401: ERR_401, 403: ERR_403, 404: ERR_404, 429: ERR_429},
+    )
+    def get(self, request, pk):
+        event = get_supervision_event_detail(pk)
+        if event is None:
+            return not_found("Événement introuvable.")
+        return APIResponse.success(data=SupervisionEventDetailSerializer(event).data, message="Fiche événement.")
+
+
+class SupervisionEventCancelView(SupervisionAPIView):
+    """POST /api/supervision/events/{id}/cancel/"""
+
+    @extend_schema(
+        tags=TAG_EVENTS,
+        summary="Annuler un événement (modération)",
+        description=(
+            "Annule un brouillon ou un événement publié. Raison obligatoire, "
+            "enregistrée dans le journal d'audit. Un événement terminé ne peut "
+            "pas être annulé. L'administrateur ne publie pas d'événement : "
+            "c'est la décision de l'organisateur."
+        ),
+        request=ReasonSerializer,
+        responses={
+            200: SupervisionEventDetailSerializer,
+            400: OpenApiResponse(description="Raison manquante, ou événement terminé."),
+            401: ERR_401, 403: ERR_403, 404: ERR_404,
+            409: OpenApiResponse(description="Événement déjà annulé."),
+            429: ERR_429,
+        },
+    )
+    def post(self, request, pk):
+        serializer = ReasonSerializer(data=request.data)
+        if not serializer.is_valid():
+            return invalid_data(serializer)
+        EventSupervisionService.cancel(
+            actor=request.user,
+            event_id=pk,
+            reason=serializer.validated_data["reason"],
+            request=request,
+        )
+        return APIResponse.success(
+            data=SupervisionEventDetailSerializer(get_supervision_event_detail(pk)).data,
+            message="Événement annulé.",
+        )
+
+
+# ==================================================================
+# CATÉGORIES (phase S3)
+# ==================================================================
+class SupervisionCategoryListView(SupervisionAPIView):
+    """GET / POST /api/supervision/categories/"""
+
+    @extend_schema(
+        tags=TAG_CATEGORIES,
+        summary="Liste des catégories",
+        description="Toutes les catégories, actives ou désactivées, avec leur nombre d'événements.",
+        parameters=[
+            OpenApiParameter("search", str, description="Nom de la catégorie."),
+            OpenApiParameter("is_active", bool),
+            OpenApiParameter("ordering", str, description="name, created_at, events_total."),
+        ],
+        responses={200: SupervisionCategorySerializer(many=True), 400: ERR_400_FILTER,
+                   401: ERR_401, 403: ERR_403, 429: ERR_429},
+    )
+    def get(self, request):
+        filterset = SupervisionCategoryFilter(request.GET, queryset=get_supervision_categories())
+        if not filterset.is_valid():
+            return invalid_filters(filterset)
+        return paginated_response(
+            request, self, filterset.qs, SupervisionCategorySerializer, "Liste des catégories.",
+        )
+
+    @extend_schema(
+        tags=TAG_CATEGORIES,
+        summary="Créer une catégorie",
+        request=SupervisionCategoryWriteSerializer,
+        responses={
+            201: SupervisionCategorySerializer,
+            400: OpenApiResponse(description="Nom manquant ou déjà utilisé."),
+            401: ERR_401, 403: ERR_403,
+            409: OpenApiResponse(description="Nom trop proche d'une catégorie existante."),
+            429: ERR_429,
+        },
+    )
+    def post(self, request):
+        serializer = SupervisionCategoryWriteSerializer(data=request.data)
+        if not serializer.is_valid():
+            return invalid_data(serializer)
+        category = CategorySupervisionService.create(
+            actor=request.user, validated_data=serializer.validated_data, request=request,
+        )
+        return APIResponse.created(
+            data=SupervisionCategorySerializer(get_supervision_category_by_id(category.pk)).data,
+            message="Catégorie créée.",
+        )
+
+
+class SupervisionCategoryDetailView(SupervisionAPIView):
+    """GET / PATCH / DELETE /api/supervision/categories/{id}/"""
+
+    @extend_schema(
+        tags=TAG_CATEGORIES,
+        summary="Fiche d'une catégorie",
+        responses={200: SupervisionCategorySerializer, 401: ERR_401, 403: ERR_403, 404: ERR_404, 429: ERR_429},
+    )
+    def get(self, request, pk):
+        category = get_supervision_category_by_id(pk)
+        if category is None:
+            return not_found("Catégorie introuvable.")
+        return APIResponse.success(data=SupervisionCategorySerializer(category).data, message="Fiche catégorie.")
+
+    @extend_schema(
+        tags=TAG_CATEGORIES,
+        summary="Modifier une catégorie",
+        description="Seuls les champs envoyés sont modifiés. L'avant / après est conservé dans l'audit.",
+        request=SupervisionCategoryWriteSerializer,
+        responses={
+            200: SupervisionCategorySerializer,
+            400: OpenApiResponse(description="Nom invalide ou déjà utilisé."),
+            401: ERR_401, 403: ERR_403, 404: ERR_404,
+            409: OpenApiResponse(description="Nom trop proche d'une catégorie existante."),
+            429: ERR_429,
+        },
+    )
+    def patch(self, request, pk):
+        category = get_supervision_category_by_id(pk)
+        if category is None:
+            return not_found("Catégorie introuvable.")
+        serializer = SupervisionCategoryWriteSerializer(category, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return invalid_data(serializer)
+        CategorySupervisionService.update(
+            actor=request.user, category_id=pk,
+            validated_data=serializer.validated_data, request=request,
+        )
+        return APIResponse.success(
+            data=SupervisionCategorySerializer(get_supervision_category_by_id(pk)).data,
+            message="Catégorie modifiée.",
+        )
+
+    @extend_schema(
+        tags=TAG_CATEGORIES,
+        summary="Supprimer une catégorie",
+        description=(
+            "Uniquement si aucun événement ne l'utilise. Sinon, désactivez-la "
+            "(POST categories/{id}/deactivate/)."
+        ),
+        responses={
+            200: OpenApiResponse(description="Catégorie supprimée."),
+            401: ERR_401, 403: ERR_403, 404: ERR_404,
+            409: OpenApiResponse(description="Catégorie utilisée par au moins un événement."),
+            429: ERR_429,
+        },
+    )
+    def delete(self, request, pk):
+        CategorySupervisionService.delete(actor=request.user, category_id=pk, request=request)
+        return APIResponse.success(data=None, message="Catégorie supprimée.")
+
+
+def _category_status_action(request, pk, active, success_message):
+    serializer = ReasonSerializer(data=request.data)
+    if not serializer.is_valid():
+        return invalid_data(serializer)
+    CategorySupervisionService.set_active(
+        actor=request.user,
+        category_id=pk,
+        active=active,
+        reason=serializer.validated_data["reason"],
+        request=request,
+    )
+    return APIResponse.success(
+        data=SupervisionCategorySerializer(get_supervision_category_by_id(pk)).data,
+        message=success_message,
+    )
+
+
+_CATEGORY_STATUS_ERRORS = {
+    400: OpenApiResponse(description="Raison manquante ou trop courte."),
+    401: ERR_401, 403: ERR_403, 404: ERR_404,
+    409: OpenApiResponse(description="La catégorie est déjà dans cet état."),
+    429: ERR_429,
+}
+
+
+class SupervisionCategoryDeactivateView(SupervisionAPIView):
+    """POST /api/supervision/categories/{id}/deactivate/"""
+
+    @extend_schema(
+        tags=TAG_CATEGORIES,
+        summary="Désactiver une catégorie",
+        description="La catégorie disparaît des listes publiques ; ses événements ne sont pas modifiés.",
+        request=ReasonSerializer,
+        responses={200: SupervisionCategorySerializer, **_CATEGORY_STATUS_ERRORS},
+    )
+    def post(self, request, pk):
+        return _category_status_action(request, pk, False, "Catégorie désactivée.")
+
+
+class SupervisionCategoryActivateView(SupervisionAPIView):
+    """POST /api/supervision/categories/{id}/activate/"""
+
+    @extend_schema(
+        tags=TAG_CATEGORIES,
+        summary="Réactiver une catégorie",
+        request=ReasonSerializer,
+        responses={200: SupervisionCategorySerializer, **_CATEGORY_STATUS_ERRORS},
+    )
+    def post(self, request, pk):
+        return _category_status_action(request, pk, True, "Catégorie réactivée.")

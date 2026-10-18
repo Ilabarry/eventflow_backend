@@ -11,6 +11,13 @@ from apps.supervision.views import (
     AuditLogListView,
     OrganizerDetailView,
     OrganizerListView,
+    SupervisionCategoryActivateView,
+    SupervisionCategoryDeactivateView,
+    SupervisionCategoryDetailView,
+    SupervisionCategoryListView,
+    SupervisionEventCancelView,
+    SupervisionEventDetailView,
+    SupervisionEventListView,
     UserActivateView,
     UserActivityView,
     UserDetailView,
@@ -34,4 +41,23 @@ urlpatterns = [
     # Organisateurs (S2)
     path("organizers/", OrganizerListView.as_view(), name="organizer-list"),
     path("organizers/<uuid:pk>/", OrganizerDetailView.as_view(), name="organizer-detail"),
+
+    # Événements (S3) : consultation et annulation uniquement
+    path("events/", SupervisionEventListView.as_view(), name="event-list"),
+    path("events/<uuid:pk>/", SupervisionEventDetailView.as_view(), name="event-detail"),
+    path("events/<uuid:pk>/cancel/", SupervisionEventCancelView.as_view(), name="event-cancel"),
+
+    # Catégories (S3)
+    path("categories/", SupervisionCategoryListView.as_view(), name="category-list"),
+    path("categories/<uuid:pk>/", SupervisionCategoryDetailView.as_view(), name="category-detail"),
+    path(
+        "categories/<uuid:pk>/deactivate/",
+        SupervisionCategoryDeactivateView.as_view(),
+        name="category-deactivate",
+    ),
+    path(
+        "categories/<uuid:pk>/activate/",
+        SupervisionCategoryActivateView.as_view(),
+        name="category-activate",
+    ),
 ]

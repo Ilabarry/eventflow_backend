@@ -38,6 +38,30 @@ class UserAlreadyActive(BusinessException):
     default_code = "user_already_active"
 
 
+class SupervisionEventNotFound(BusinessException):
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "Événement introuvable."
+    default_code = "supervision_event_not_found"
+
+
+class SupervisionCategoryNotFound(BusinessException):
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "Catégorie introuvable."
+    default_code = "supervision_category_not_found"
+
+
+class CategoryAlreadyActive(BusinessException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Cette catégorie est déjà active."
+    default_code = "category_already_active"
+
+
+class CategoryAlreadyInactive(BusinessException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Cette catégorie est déjà désactivée."
+    default_code = "category_already_inactive"
+
+
 # ==================================================================
 # GARDE-FOUS DE SÉCURITÉ (refus journalisés)
 # ==================================================================

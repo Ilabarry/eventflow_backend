@@ -9,6 +9,7 @@ Phase S1 : journal d'audit.
     ?ordering=-created_at    (liste blanche : created_at, action)
 
 Phase S2 : utilisateurs et organisateurs (paramètres détaillés plus bas).
+Phase S3 : événements et catégories (paramètres détaillés plus bas).
 """
 
 import django_filters
@@ -16,6 +17,8 @@ from django.db.models import Q
 
 from apps.accounts.constants import ALL_ROLES
 from apps.accounts.models import User
+from apps.events.constants import EventFormat, EventStatus
+from apps.events.models import Category, Event
 from apps.supervision.constants import AuditAction, AuditEntity, AuditResult
 from apps.supervision.models import AuditLog
 
@@ -123,3 +126,61 @@ class OrganizerFilter(django_filters.FilterSet):
 
     def filter_search(self, queryset, name, value):
         return _search_users(queryset, value)
+
+
+# ==================================================================
+# ÉVÉNEMENTS (phase S3)
+#   ?search=          (titre, e-mail de l'organisateur)
+#   ?status=CANCELLED ?format=ONLINE
+#   ?organizer=<uuid> ?category=<uuid>   ?city=cotonou
+#   ?starts_from=2026-11-01  ?starts_to=2026-11-30
+#   ?ordering=-start_at  (start_at, created_at, title, registrations_confirmed)
+# ==================================================================
+class SupervisionEventFilter(django_filters.FilterSet):
+    search = django_filters.CharFilter(method="filter_search")
+    status = django_filters.ChoiceFilter(choices=EventStatus.choices)
+    format = django_filters.ChoiceFilter(choices=EventFormat.choices)
+    organizer = django_filters.UUIDFilter(field_name="organizer_id")
+    category = django_filters.UUIDFilter(field_name="category_id")
+    city = django_filters.CharFilter(field_name="city", lookup_expr="icontains")
+    starts_from = django_filters.DateFilter(field_name="start_at", lookup_expr="date__gte")
+    starts_to = django_filters.DateFilter(field_name="start_at", lookup_expr="date__lte")
+    ordering = django_filters.OrderingFilter(
+        fields=(
+            ("start_at", "start_at"),
+            ("created_at", "created_at"),
+            ("title", "title"),
+            ("registrations_confirmed", "registrations_confirmed"),
+        ),
+    )
+
+    class Meta:
+        model = Event
+        fields = []
+
+    def filter_search(self, queryset, name, value):
+        value = value.strip()
+        if not value:
+            return queryset
+        return queryset.filter(Q(title__icontains=value) | Q(organizer__email__icontains=value))
+
+
+# ==================================================================
+# CATÉGORIES (phase S3)
+#   ?search=tech  ?is_active=false
+#   ?ordering=-events_total  (name, created_at, events_total)
+# ==================================================================
+class SupervisionCategoryFilter(django_filters.FilterSet):
+    search = django_filters.CharFilter(field_name="name", lookup_expr="icontains")
+    is_active = django_filters.BooleanFilter()
+    ordering = django_filters.OrderingFilter(
+        fields=(
+            ("name", "name"),
+            ("created_at", "created_at"),
+            ("events_total", "events_total"),
+        ),
+    )
+
+    class Meta:
+        model = Category
+        fields = []

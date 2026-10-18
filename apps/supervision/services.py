@@ -3,6 +3,11 @@ Services métier du module Supervision.
 
 Phase S1 : AuditService, utilisé par toutes les actions administratives.
 Phase S2 : UserSupervisionService (suspension / réactivation de comptes).
+Phase S3 : EventSupervisionService (annulation) et CategorySupervisionService.
+
+Les services de supervision ne refont PAS la logique métier des autres
+modules : ils appellent EventService / CategoryService (module events)
+et y ajoutent le verrouillage, la raison et la trace d'audit.
 
 Règle d'usage : chaque service d'action appelle AuditService.log() DANS
 SA transaction (transaction.atomic). Ainsi, soit l'action ET sa trace
@@ -12,11 +17,15 @@ sont enregistrées, soit aucune des deux : jamais d'action sans trace.
 import logging
 import uuid
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
 from apps.accounts.models import User
+from apps.events.models import Category, Event
+from apps.events.services import CategoryService, EventService
+from apps.registrations.constants import RegistrationStatus
+from common.exceptions.business import CategoryAlreadyExists
 from apps.supervision.constants import (
     FILTERED_VALUE,
     SENSITIVE_EXACT_KEYS,
@@ -28,7 +37,11 @@ from apps.supervision.constants import (
 )
 from apps.supervision.exceptions import (
     ActorNoLongerAdmin,
+    CategoryAlreadyActive,
+    CategoryAlreadyInactive,
     SecurityGuardDenied,
+    SupervisionCategoryNotFound,
+    SupervisionEventNotFound,
     SupervisionUserNotFound,
     UserAlreadyActive,
     UserAlreadySuspended,
@@ -292,3 +305,178 @@ class UserSupervisionService:
             )
             raise denial
         return target
+
+
+# ------------------------------------------------------------------
+# Service : événements (phase S3)
+# ------------------------------------------------------------------
+class EventSupervisionService:
+    """Modération des événements : l'administrateur peut seulement ANNULER."""
+
+    @staticmethod
+    def cancel(*, actor, event_id, reason: str, request=None) -> Event:
+        """
+        Annule un événement (brouillon ou publié) pour raison de modération.
+
+        Les règles de transition (déjà annulé → 409, terminé → 400) sont
+        celles d'EventService : on ne les réécrit pas ici.
+        """
+        with transaction.atomic():
+            event = (
+                Event.objects.select_for_update(of=("self",))
+                .select_related("organizer")
+                .filter(pk=event_id)
+                .first()
+            )
+            if event is None:
+                raise SupervisionEventNotFound()
+
+            previous_status = event.status
+            EventService.cancel_event(event=event)
+
+            AuditService.log(
+                actor=actor,
+                action=AuditAction.EVENT_CANCELLED,
+                entity_type=AuditEntity.EVENT,
+                entity_id=event.pk,
+                description=f"Annulation de l'événement « {event.title} »",
+                reason=reason,
+                metadata={
+                    "previous_status": previous_status,
+                    "organizer_email": event.organizer.email,
+                    "confirmed_registrations": event.registrations.filter(
+                        status=RegistrationStatus.CONFIRMED,
+                    ).count(),
+                },
+                request=request,
+            )
+        return event
+
+
+# ------------------------------------------------------------------
+# Service : catégories (phase S3)
+# ------------------------------------------------------------------
+class CategorySupervisionService:
+    """Gestion des catégories, chaque action étant tracée."""
+
+    @staticmethod
+    def _lock(category_id) -> Category:
+        category = Category.objects.select_for_update().filter(pk=category_id).first()
+        if category is None:
+            raise SupervisionCategoryNotFound()
+        return category
+
+    @staticmethod
+    def _slug_conflict() -> CategoryAlreadyExists:
+        # Deux noms différents peuvent donner le même identifiant d'URL
+        # (« Tech » et « Tech ! » → « tech »). Sans ce contrôle, la base
+        # refuserait l'enregistrement avec une erreur 500.
+        return CategoryAlreadyExists(
+            detail="Une catégorie au nom trop proche existe déjà (même identifiant d'URL).",
+        )
+
+    @classmethod
+    def create(cls, *, actor, validated_data: dict, request=None) -> Category:
+        with transaction.atomic():
+            try:
+                # Point de sauvegarde : en cas de doublon, seule cette
+                # instruction est annulée et on renvoie une erreur propre.
+                with transaction.atomic():
+                    category = CategoryService.create_category(validated_data=validated_data)
+            except IntegrityError:
+                raise cls._slug_conflict()
+
+            AuditService.log(
+                actor=actor,
+                action=AuditAction.CATEGORY_CREATED,
+                entity_type=AuditEntity.CATEGORY,
+                entity_id=category.pk,
+                description=f"Création de la catégorie « {category.name} »",
+                metadata={"name": category.name, "slug": category.slug},
+                request=request,
+            )
+        return category
+
+    @classmethod
+    def update(cls, *, actor, category_id, validated_data: dict, request=None) -> Category:
+        """Modifie les champs envoyés et enregistre l'avant / après dans l'audit."""
+        with transaction.atomic():
+            category = cls._lock(category_id)
+            changes = {
+                field: {"before": getattr(category, field), "after": value}
+                for field, value in validated_data.items()
+                if getattr(category, field) != value
+            }
+            if not changes:
+                return category  # rien n'a changé : pas de ligne d'audit inutile
+
+            try:
+                with transaction.atomic():
+                    category = CategoryService.update_category(
+                        category=category,
+                        validated_data={field: change["after"] for field, change in changes.items()},
+                    )
+            except IntegrityError:
+                raise cls._slug_conflict()
+
+            AuditService.log(
+                actor=actor,
+                action=AuditAction.CATEGORY_UPDATED,
+                entity_type=AuditEntity.CATEGORY,
+                entity_id=category.pk,
+                description=f"Modification de la catégorie « {category.name} »",
+                metadata={"changes": changes},
+                request=request,
+            )
+        return category
+
+    @classmethod
+    def set_active(cls, *, actor, category_id, active: bool, reason: str, request=None) -> Category:
+        """
+        Désactive (active=False) ou réactive (active=True) une catégorie.
+        Désactiver ne touche pas aux événements : la catégorie disparaît
+        seulement des listes publiques.
+        """
+        with transaction.atomic():
+            category = cls._lock(category_id)
+            if category.is_active == active:
+                raise CategoryAlreadyActive() if active else CategoryAlreadyInactive()
+
+            category.is_active = active
+            category.save(update_fields=["is_active", "updated_at"])
+
+            AuditService.log(
+                actor=actor,
+                action=AuditAction.CATEGORY_ACTIVATED if active else AuditAction.CATEGORY_DEACTIVATED,
+                entity_type=AuditEntity.CATEGORY,
+                entity_id=category.pk,
+                description=(
+                    f"{'Réactivation' if active else 'Désactivation'} "
+                    f"de la catégorie « {category.name} »"
+                ),
+                reason=reason,
+                metadata={"events_count": category.events.count()},
+                request=request,
+            )
+        return category
+
+    @classmethod
+    def delete(cls, *, actor, category_id, request=None) -> None:
+        """Supprime une catégorie inutilisée (sinon CategoryInUse → 409)."""
+        with transaction.atomic():
+            category = cls._lock(category_id)
+            snapshot = {"name": category.name, "slug": category.slug}
+            category_pk = category.pk
+
+            CategoryService.delete_category(category=category)
+
+            # La catégorie n'existe plus : l'audit garde son nom et son id.
+            AuditService.log(
+                actor=actor,
+                action=AuditAction.CATEGORY_DELETED,
+                entity_type=AuditEntity.CATEGORY,
+                entity_id=category_pk,
+                description=f"Suppression de la catégorie « {snapshot['name']} »",
+                metadata=snapshot,
+                request=request,
+            )
