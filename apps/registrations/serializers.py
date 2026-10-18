@@ -31,6 +31,7 @@ class RegistrationCreateSerializer(serializers.Serializer):
 
     Le participant reçoit :
         - event_id (UUID, obligatoire)
+        - ticket_type_id (UUID, optionnel — obligatoire pour PAID)
 
     Le backend attribue automatiquement :
         - participant (request.user)
@@ -40,29 +41,75 @@ class RegistrationCreateSerializer(serializers.Serializer):
     """
 
     event_id = serializers.UUIDField()
+    ticket_type_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="UUID du type de ticket (obligatoire pour événement payant).",
+    )
 
-    def validate_event_id(self, value):
-        """Récupère l'événement et valide son éligibilité."""
+    def validate(self, attrs: dict) -> dict:
+        """
+        Valide l'ensemble des données :
+            1. Récupère l'événement.
+            2. Vérifie qu'il accepte les inscriptions.
+            3. Récupère le ticket_type (si fourni).
+            4. Vérifie la cohérence PAID/FREE.
+        """
         from apps.events.models import Event
+        from apps.tickets.models import TicketType
 
+        event_id = attrs.get("event_id")
+        ticket_type_id = attrs.get("ticket_type_id")
+
+        # 1. Récupérer l'événement
         try:
-            event = Event.objects.select_related("organizer").get(pk=value)
+            event = Event.objects.select_related("organizer").get(pk=event_id)
         except Event.DoesNotExist:
-            raise serializers.ValidationError("Événement introuvable.")
+            raise serializers.ValidationError(
+                {"event_id": "Événement introuvable."}
+            )
 
-        # Vérifier que l'événement accepte les inscriptions
-        validate_event_is_open(event)
+        # 2. Vérifier que l'événement accepte les inscriptions
+        try:
+            validate_event_is_open(event)
+        except Exception as e:
+            raise serializers.ValidationError(
+                {"event_id": str(e)}
+            )
 
-        # Vérifier que le type de participation est supporté
-        validate_participation_type(event, ticket_type_id=None)
+        # 3. Récupérer le ticket_type si fourni
+        ticket_type = None
+        if ticket_type_id:
+            try:
+                ticket_type = TicketType.objects.get(
+                    pk=ticket_type_id,
+                    event=event,
+                )
+            except TicketType.DoesNotExist:
+                raise serializers.ValidationError(
+                    {"ticket_type_id": "Type de ticket introuvable pour cet événement."}
+                )
 
-        # Stocker l'événement pour la couche service
-        self._event = event
-        return value
+        # 4. Vérifier la cohérence PAID/FREE
+        try:
+            validate_participation_type(event, ticket_type=ticket_type)
+        except Exception as e:
+            raise serializers.ValidationError(
+                {"ticket_type_id": str(e)}
+            )
+
+        # Stocker pour la couche service
+        attrs["_event"] = event
+        attrs["_ticket_type"] = ticket_type
+        return attrs
 
     @property
     def event(self):
-        return self._event
+        return self.validated_data["_event"]
+
+    @property
+    def ticket_type(self):
+        return self.validated_data["_ticket_type"]
 
 
 # ==================================================================
@@ -99,6 +146,9 @@ class RegistrationDetailSerializer(serializers.ModelSerializer):
     """
 
     event = serializers.SerializerMethodField()
+    ticket_type_name = serializers.CharField(
+        source="ticket_type.name", read_only=True, default=None
+    )
 
     class Meta:
         model = Registration
@@ -109,26 +159,18 @@ class RegistrationDetailSerializer(serializers.ModelSerializer):
             "registered_at",
             "cancelled_at",
             "event",
+            "ticket_type_name",
         )
         read_only_fields = fields
 
     def get_event(self, obj: Registration) -> dict:
-        """
-        Retourne les détails de l'événement.
-
-        Si l'inscription est CONFIRMED, on expose access_url
-        (le participant est attendu).
-        Sinon, on ne l'expose pas.
-        """
         from apps.events.serializers import EventOrganizerSerializer
 
-        # Le participant confirmé a le droit de voir access_url
         if obj.status == RegistrationStatus.CONFIRMED:
             return EventOrganizerSerializer(
                 obj.event, context=self.context
             ).data
 
-        # Sinon, détail public (sans access_url)
         from apps.events.serializers import EventDetailSerializer
         return EventDetailSerializer(
             obj.event, context=self.context
@@ -141,13 +183,14 @@ class RegistrationDetailSerializer(serializers.ModelSerializer):
 class RegistrationOrganizerSerializer(serializers.ModelSerializer):
     """
     Inscription vue par l'organisateur.
-
-    Inclut des informations sur le participant (utile pour la gestion).
     """
 
     participant_email = serializers.EmailField(source="participant.email", read_only=True)
     participant_name = serializers.CharField(source="participant.full_name", read_only=True)
     participant_phone = serializers.CharField(source="participant.phone", read_only=True)
+    ticket_type_name = serializers.CharField(
+        source="ticket_type.name", read_only=True, default=None
+    )
 
     class Meta:
         model = Registration
@@ -160,6 +203,7 @@ class RegistrationOrganizerSerializer(serializers.ModelSerializer):
             "participant_email",
             "participant_name",
             "participant_phone",
+            "ticket_type_name",
         )
         read_only_fields = fields
 
@@ -170,8 +214,6 @@ class RegistrationOrganizerSerializer(serializers.ModelSerializer):
 class RegistrationOrganizerDetailSerializer(RegistrationOrganizerSerializer):
     """
     Détail complet d'une inscription côté organisateur.
-
-    Identique à la liste, mais inclut les détails de l'événement.
     """
 
     event = EventListSerializer(read_only=True)
@@ -185,12 +227,7 @@ class RegistrationOrganizerDetailSerializer(RegistrationOrganizerSerializer):
 # SERIALIZER : Annulation
 # ==================================================================
 class RegistrationCancelSerializer(serializers.Serializer):
-    """
-    Serializer pour l'annulation d'une inscription.
-
-    Aucun champ n'est requis : le backend utilise l'ID de l'inscription
-    passé dans l'URL.
-    """
+    """Serializer pour l'annulation d'une inscription."""
 
     reason = serializers.CharField(
         required=False,
@@ -204,9 +241,5 @@ class RegistrationCancelSerializer(serializers.Serializer):
 # SERIALIZER : Confirmation (organisateur)
 # ==================================================================
 class RegistrationConfirmSerializer(serializers.Serializer):
-    """
-    Serializer pour confirmer une inscription (organisateur).
-
-    Aucun champ requis pour l'instant.
-    """
+    """Serializer pour confirmer une inscription (organisateur)."""
     pass
