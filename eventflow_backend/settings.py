@@ -157,6 +157,13 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     # Handler d'exceptions personnalisé
     'EXCEPTION_HANDLER': 'common.exceptions.handlers.custom_exception_handler',
+
+    "DEFAULT_THROTTLE_CLASSES": [],
+    "DEFAULT_THROTTLE_RATES": {
+        "attendance_checkin": "60/min",
+        "attendance_qr": "120/min",
+        "certificate_verify": "30/min",
+    }
 }
 
 SIMPLE_JWT = {
@@ -180,6 +187,16 @@ SPECTACULAR_SETTINGS = {
 }
 
 # ------------------------------------------------------------------
+# PAYMENT
+# ------------------------------------------------------------------
+PAYMENT_DEFAULT_CURRENCY = config("PAYMENT_DEFAULT_CURRENCY", default="XOF")
+PAYMENT_DEVELOPMENT_ENABLED = config(
+    "PAYMENT_DEVELOPMENT_ENABLED",
+    default=DEBUG,
+    cast=bool,
+)
+
+# ------------------------------------------------------------------
 # CORS (pour Angular)
 # ------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = config(
@@ -189,13 +206,13 @@ CORS_ALLOWED_ORIGINS = config(
 )
 CORS_ALLOW_CREDENTIALS = True
 
-# ------------------------------------------------------------------
-# ATTENDANCE (présences)
-# ------------------------------------------------------------------
-# Nombre de minutes avant le début d'un événement à partir duquel
-# le check-in est ouvert (accueil des participants).
+# ================================================================
+# ATTENDANCE
+# ================================================================
+# Nombre de minutes avant le début de l'événement pendant lesquelles
+# le check-in est déjà ouvert.
 ATTENDANCE_CHECK_IN_OPENS_BEFORE_MINUTES = config(
-    'ATTENDANCE_CHECK_IN_OPENS_BEFORE_MINUTES',
+    "ATTENDANCE_CHECK_IN_OPENS_BEFORE_MINUTES",
     default=120,
     cast=int,
 )
@@ -212,3 +229,12 @@ if not DEBUG:
     SECURE_HSTS_PRELOAD = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
+
+    # ------------------------------------------------------------------
+# CERTIFICATES
+# ------------------------------------------------------------------
+FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:4200")
+CERTIFICATE_VERIFY_URL_BASE = config(
+    "CERTIFICATE_VERIFY_URL_BASE",
+    default=f"{FRONTEND_URL}/verify",
+)

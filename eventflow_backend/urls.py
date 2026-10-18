@@ -23,12 +23,14 @@ urlpatterns = [
     path("api/", include("apps.accounts.urls")),
     path("api/", include("apps.events.urls")),
     path("api/", include("apps.registrations.urls")),
+    path("api/", include("apps.payments.urls")),
     path("api/", include("apps.attendance.urls")),
     path("api/", include("apps.dashboards.urls")),
-    path("api/notifications/", include("apps.notifications.urls")),
+    path("api/", include("apps.notifications.urls")),
+    path("api/", include("apps.tickets.urls")),
+    path("api/", include("apps.certificates.urls")),
 ]
 
-# Servir les fichiers médias en développement
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

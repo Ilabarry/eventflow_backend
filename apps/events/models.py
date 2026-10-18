@@ -257,6 +257,25 @@ class Event(models.Model):
         help_text="Obligatoire si capacity_type=LIMITED. NULL si UNLIMITED.",
     )
 
+        # ------------------------------------------------------------------
+    # Prix (pour les événements payants)
+    # ------------------------------------------------------------------
+    # NOTE(tickets) : ce champ sera complété/remplacé par TicketType.price
+    # quand le module tickets sera disponible. Pour l'instant, il sert
+    # de source de vérité pour le montant du paiement.
+    base_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Prix de base",
+        help_text=(
+            "Prix de participation en XOF. "
+            "Obligatoire si participation_type=PAID. "
+            "NULL ou 0 si participation_type=FREE."
+        ),
+    )
+
     # ------------------------------------------------------------------
     # Statut
     # ------------------------------------------------------------------
@@ -312,6 +331,15 @@ class Event(models.Model):
                     | models.Q(capacity_type="UNLIMITED", capacity_limit__isnull=True)
                 ),
                 name="event_capacity_consistent",
+            ),
+
+            models.CheckConstraint(
+                condition=(
+                    models.Q(participation_type="FREE", base_price__isnull=True)
+                    | models.Q(participation_type="FREE", base_price=0)
+                    | models.Q(participation_type="PAID", base_price__gt=0)
+                ),
+                name="event_price_consistent",
             ),
         ]
 

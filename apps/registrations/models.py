@@ -74,14 +74,30 @@ class Registration(models.Model):
         help_text="Événement concerné par l'inscription.",
     )
 
-    # NOTE(tickets) : la FK ticket_type sera ajoutée plus tard :
-    # ticket_type = models.ForeignKey(
-    #     "tickets.TicketType",
-    #     on_delete=models.PROTECT,
-    #     null=True, blank=True,
-    #     related_name="registrations",
-    # )
-    # Pour l'instant, on ne la met PAS pour éviter une migration cassée.
+        # ------------------------------------------------------------------
+    # Type de ticket (optionnel pour événements gratuits)
+    # ------------------------------------------------------------------
+    ticket_type = models.ForeignKey(
+        "tickets.TicketType",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="registrations",
+        verbose_name="Type de ticket",
+        help_text="Obligatoire pour les événements payants avec types de tickets.",
+    )
+
+    # ------------------------------------------------------------------
+    # Prix réellement payé (snapshot au moment de la confirmation)
+    # ------------------------------------------------------------------
+    price_paid = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Prix payé",
+        help_text="Prix réel payé (snapshot, ne change pas si TicketType change).",
+    )
 
     # ------------------------------------------------------------------
     # Référence unique

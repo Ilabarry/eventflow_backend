@@ -187,3 +187,12 @@ class AttendanceStatsSerializer(serializers.Serializer):
     manual_check_ins = serializers.IntegerField()
     qr_check_ins = serializers.IntegerField()
     check_ins_by_hour = CheckInsByHourSerializer(many=True)
+
+
+class QRCheckInSerializer(serializers.Serializer):
+    """POST /api/attendance/check-in/qr/"""
+
+    qr_code = serializers.CharField(
+        max_length=500,
+        help_text="Payload du QR code scanné (format: reference|signature).",
+    )

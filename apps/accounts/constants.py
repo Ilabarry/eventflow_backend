@@ -119,3 +119,67 @@ ALL_REGISTRATION_PERMISSIONS = (
     (PERM_REGISTRATION_CANCEL, "Annuler une inscription (organisateur)"),
     (PERM_REGISTRATION_VIEW_ALL, "Voir toutes les inscriptions (admin)"),
 )
+
+
+
+# ------------------------------------------------------------------
+# Permissions du module Payment
+# ------------------------------------------------------------------
+PERM_PAYMENT_VIEW = "payment.view"
+PERM_PAYMENT_INITIATE = "payment.initiate"
+PERM_PAYMENT_CANCEL = "payment.cancel"
+PERM_PAYMENT_REFUND = "payment.refund"
+PERM_PAYMENT_MANAGE = "payment.manage"
+PERM_PAYMENT_VIEW_STATS = "payment.view_stats"
+
+ALL_PAYMENT_PERMISSIONS = (
+    (PERM_PAYMENT_VIEW, "Consulter les paiements"),
+    (PERM_PAYMENT_INITIATE, "Initier un paiement"),
+    (PERM_PAYMENT_CANCEL, "Annuler un paiement"),
+    (PERM_PAYMENT_REFUND, "Rembourser un paiement"),
+    (PERM_PAYMENT_MANAGE, "Administrer les paiements"),
+    (PERM_PAYMENT_VIEW_STATS, "Voir les statistiques de paiement"),
+)
+
+# ------------------------------------------------------------------
+# Permissions du module Tickets
+# ------------------------------------------------------------------
+PERM_TICKET_TYPE_CREATE = "ticket_type.create"
+PERM_TICKET_TYPE_VIEW = "ticket_type.view"
+PERM_TICKET_TYPE_UPDATE = "ticket_type.update"
+PERM_TICKET_TYPE_DELETE = "ticket_type.delete"
+
+PERM_TICKET_VIEW_OWN = "ticket.view_own"
+PERM_TICKET_VIEW_EVENT = "ticket.view_event"
+PERM_TICKET_ISSUE = "ticket.issue"
+PERM_TICKET_CANCEL = "ticket.cancel"
+PERM_TICKET_VIEW_ALL = "ticket.view_all"
+
+ALL_TICKET_PERMISSIONS = (
+    (PERM_TICKET_TYPE_CREATE, "Créer un type de ticket"),
+    (PERM_TICKET_TYPE_VIEW, "Consulter un type de ticket"),
+    (PERM_TICKET_TYPE_UPDATE, "Modifier un type de ticket"),
+    (PERM_TICKET_TYPE_DELETE, "Supprimer/désactiver un type de ticket"),
+    (PERM_TICKET_VIEW_OWN, "Voir ses propres tickets"),
+    (PERM_TICKET_VIEW_EVENT, "Voir les tickets d'un événement"),
+    (PERM_TICKET_ISSUE, "Émettre un ticket"),
+    (PERM_TICKET_CANCEL, "Annuler un ticket"),
+    (PERM_TICKET_VIEW_ALL, "Voir tous les tickets (admin)"),
+)
+
+# ------------------------------------------------------------------
+# Permissions du module Certificates
+# ------------------------------------------------------------------
+PERM_CERTIFICATE_VIEW = "certificate.view"
+PERM_CERTIFICATE_GENERATE = "certificate.generate"
+PERM_CERTIFICATE_DOWNLOAD = "certificate.download"
+PERM_CERTIFICATE_REVOKE = "certificate.revoke"
+PERM_CERTIFICATE_VIEW_EVENT = "certificate.view_event"
+
+ALL_CERTIFICATE_PERMISSIONS = (
+    (PERM_CERTIFICATE_VIEW, "Voir ses certificats"),
+    (PERM_CERTIFICATE_GENERATE, "Générer un certificat"),
+    (PERM_CERTIFICATE_DOWNLOAD, "Télécharger un certificat"),
+    (PERM_CERTIFICATE_REVOKE, "Révoquer un certificat"),
+    (PERM_CERTIFICATE_VIEW_EVENT, "Voir les certificats d'un événement"),
+)
