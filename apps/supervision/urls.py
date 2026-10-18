@@ -11,6 +11,7 @@ from apps.supervision.views import (
     AuditLogListView,
     OrganizerDetailView,
     OrganizerListView,
+    SupervisionAttendanceListView,
     SupervisionCategoryActivateView,
     SupervisionCategoryDeactivateView,
     SupervisionCategoryDetailView,
@@ -18,6 +19,8 @@ from apps.supervision.views import (
     SupervisionEventCancelView,
     SupervisionEventDetailView,
     SupervisionEventListView,
+    SupervisionRegistrationDetailView,
+    SupervisionRegistrationListView,
     UserActivateView,
     UserActivityView,
     UserDetailView,
@@ -60,4 +63,13 @@ urlpatterns = [
         SupervisionCategoryActivateView.as_view(),
         name="category-activate",
     ),
+
+    # Inscriptions et présences (S4) : lecture seule
+    path("registrations/", SupervisionRegistrationListView.as_view(), name="registration-list"),
+    path(
+        "registrations/<uuid:pk>/",
+        SupervisionRegistrationDetailView.as_view(),
+        name="registration-detail",
+    ),
+    path("attendance/", SupervisionAttendanceListView.as_view(), name="attendance-list"),
 ]

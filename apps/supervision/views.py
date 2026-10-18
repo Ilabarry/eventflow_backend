@@ -14,13 +14,17 @@ from rest_framework.permissions import SAFE_METHODS, IsAuthenticated
 from rest_framework.views import APIView
 
 from apps.accounts.constants import ALL_ROLES
+from apps.attendance.constants import AttendanceStatus, CheckInMethod
 from apps.events.constants import EventFormat, EventStatus
+from apps.registrations.constants import RegistrationStatus
 from apps.supervision.constants import AuditAction, AuditEntity, AuditResult
 from apps.supervision.filters import (
     AuditLogFilter,
     OrganizerFilter,
+    SupervisionAttendanceFilter,
     SupervisionCategoryFilter,
     SupervisionEventFilter,
+    SupervisionRegistrationFilter,
     SupervisionUserFilter,
 )
 from apps.supervision.permissions import IsSupervisionAdmin
@@ -29,10 +33,13 @@ from apps.supervision.selectors import (
     get_audit_logs,
     get_organizer_by_id,
     get_organizers,
+    get_supervision_attendances,
     get_supervision_categories,
     get_supervision_category_by_id,
     get_supervision_event_detail,
     get_supervision_events,
+    get_supervision_registration_by_id,
+    get_supervision_registrations,
     get_supervision_user_detail,
     get_supervision_users,
     get_user_activity,
@@ -41,10 +48,13 @@ from apps.supervision.serializers import (
     AuditLogSerializer,
     OrganizerSerializer,
     ReasonSerializer,
+    SupervisionAttendanceSerializer,
     SupervisionCategorySerializer,
     SupervisionCategoryWriteSerializer,
     SupervisionEventDetailSerializer,
     SupervisionEventSerializer,
+    SupervisionRegistrationDetailSerializer,
+    SupervisionRegistrationSerializer,
     SupervisionUserDetailSerializer,
     SupervisionUserSerializer,
     UserActivitySerializer,
@@ -63,6 +73,8 @@ TAG_USERS = ["Supervision — Utilisateurs"]
 TAG_ORGANIZERS = ["Supervision — Organisateurs"]
 TAG_EVENTS = ["Supervision — Événements"]
 TAG_CATEGORIES = ["Supervision — Catégories"]
+TAG_REGISTRATIONS = ["Supervision — Inscriptions"]
+TAG_ATTENDANCE = ["Supervision — Présences"]
 
 ERR_401 = OpenApiResponse(description="Authentification requise (jeton JWT manquant ou expiré).")
 ERR_403 = OpenApiResponse(description="Accès réservé aux administrateurs.")
@@ -598,3 +610,93 @@ class SupervisionCategoryActivateView(SupervisionAPIView):
     )
     def post(self, request, pk):
         return _category_status_action(request, pk, True, "Catégorie réactivée.")
+
+
+# ==================================================================
+# INSCRIPTIONS (phase S4) — lecture seule
+# ==================================================================
+class SupervisionRegistrationListView(SupervisionAPIView):
+    """GET /api/supervision/registrations/"""
+
+    @extend_schema(
+        tags=TAG_REGISTRATIONS,
+        summary="Liste des inscriptions",
+        description="Toutes les inscriptions de la plateforme, tous statuts. Lecture seule.",
+        parameters=[
+            OpenApiParameter("search", str, description="Référence, e-mail du participant ou titre de l'événement."),
+            OpenApiParameter("status", str, enum=RegistrationStatus.values),
+            OpenApiParameter("event", str, description="UUID de l'événement."),
+            OpenApiParameter("participant", str, description="UUID du participant."),
+            OpenApiParameter("registered_from", str, description="AAAA-MM-JJ (inclus)."),
+            OpenApiParameter("registered_to", str, description="AAAA-MM-JJ (inclus)."),
+            OpenApiParameter("ordering", str, description="registered_at, reference (préfixe - : décroissant)."),
+        ],
+        responses={200: SupervisionRegistrationSerializer(many=True), 400: ERR_400_FILTER,
+                   401: ERR_401, 403: ERR_403, 429: ERR_429},
+    )
+    def get(self, request):
+        filterset = SupervisionRegistrationFilter(request.GET, queryset=get_supervision_registrations())
+        if not filterset.is_valid():
+            return invalid_filters(filterset)
+        return paginated_response(
+            request, self, filterset.qs, SupervisionRegistrationSerializer, "Liste des inscriptions.",
+        )
+
+
+class SupervisionRegistrationDetailView(SupervisionAPIView):
+    """GET /api/supervision/registrations/{id}/"""
+
+    @extend_schema(
+        tags=TAG_REGISTRATIONS,
+        summary="Fiche d'une inscription",
+        description="Participant, événement, organisateur et fiche de présence éventuelle.",
+        responses={200: SupervisionRegistrationDetailSerializer, 401: ERR_401, 403: ERR_403,
+                   404: ERR_404, 429: ERR_429},
+    )
+    def get(self, request, pk):
+        registration = get_supervision_registration_by_id(pk)
+        if registration is None:
+            return not_found("Inscription introuvable.")
+        return APIResponse.success(
+            data=SupervisionRegistrationDetailSerializer(registration).data,
+            message="Fiche inscription.",
+        )
+
+
+# ==================================================================
+# PRÉSENCES (phase S4) — lecture seule
+#   La liste d'accueil et les statistiques D'UN événement existent déjà
+#   dans le module attendance (accessibles aux admins) :
+#       GET /api/events/{id}/attendance/  et  .../attendance/stats/
+#   Elles ne sont volontairement pas recopiées ici.
+# ==================================================================
+class SupervisionAttendanceListView(SupervisionAPIView):
+    """GET /api/supervision/attendance/"""
+
+    @extend_schema(
+        tags=TAG_ATTENDANCE,
+        summary="Présences, tous événements confondus",
+        description=(
+            "Toutes les fiches de présence (PRESENT / ABSENT). Pour la liste d'accueil "
+            "complète d'un événement, utiliser GET /api/events/{id}/attendance/."
+        ),
+        parameters=[
+            OpenApiParameter("search", str, description="E-mail du participant, référence ou titre de l'événement."),
+            OpenApiParameter("status", str, enum=AttendanceStatus.values),
+            OpenApiParameter("method", str, enum=CheckInMethod.values),
+            OpenApiParameter("event", str, description="UUID de l'événement."),
+            OpenApiParameter("participant", str, description="UUID du participant."),
+            OpenApiParameter("checked_in_from", str, description="AAAA-MM-JJ (inclus)."),
+            OpenApiParameter("checked_in_to", str, description="AAAA-MM-JJ (inclus)."),
+            OpenApiParameter("ordering", str, description="checked_in_at, created_at (préfixe - : décroissant)."),
+        ],
+        responses={200: SupervisionAttendanceSerializer(many=True), 400: ERR_400_FILTER,
+                   401: ERR_401, 403: ERR_403, 429: ERR_429},
+    )
+    def get(self, request):
+        filterset = SupervisionAttendanceFilter(request.GET, queryset=get_supervision_attendances())
+        if not filterset.is_valid():
+            return invalid_filters(filterset)
+        return paginated_response(
+            request, self, filterset.qs, SupervisionAttendanceSerializer, "Liste des présences.",
+        )

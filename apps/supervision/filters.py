@@ -10,6 +10,7 @@ Phase S1 : journal d'audit.
 
 Phase S2 : utilisateurs et organisateurs (paramètres détaillés plus bas).
 Phase S3 : événements et catégories (paramètres détaillés plus bas).
+Phase S4 : inscriptions et présences (paramètres détaillés plus bas).
 """
 
 import django_filters
@@ -17,8 +18,12 @@ from django.db.models import Q
 
 from apps.accounts.constants import ALL_ROLES
 from apps.accounts.models import User
+from apps.attendance.constants import AttendanceStatus, CheckInMethod
+from apps.attendance.models import Attendance
 from apps.events.constants import EventFormat, EventStatus
 from apps.events.models import Category, Event
+from apps.registrations.constants import RegistrationStatus
+from apps.registrations.models import Registration
 from apps.supervision.constants import AuditAction, AuditEntity, AuditResult
 from apps.supervision.models import AuditLog
 
@@ -184,3 +189,70 @@ class SupervisionCategoryFilter(django_filters.FilterSet):
     class Meta:
         model = Category
         fields = []
+
+
+# ==================================================================
+# INSCRIPTIONS (phase S4)
+#   ?search=EVF-REG   (référence, e-mail du participant, titre de l'événement)
+#   ?status=PENDING   ?event=<uuid>   ?participant=<uuid>
+#   ?registered_from=2026-10-01  ?registered_to=2026-10-31
+#   ?ordering=-registered_at  (registered_at, reference)
+# ==================================================================
+class SupervisionRegistrationFilter(django_filters.FilterSet):
+    search = django_filters.CharFilter(method="filter_search")
+    status = django_filters.ChoiceFilter(choices=RegistrationStatus.choices)
+    event = django_filters.UUIDFilter(field_name="event_id")
+    participant = django_filters.UUIDFilter(field_name="participant_id")
+    registered_from = django_filters.DateFilter(field_name="registered_at", lookup_expr="date__gte")
+    registered_to = django_filters.DateFilter(field_name="registered_at", lookup_expr="date__lte")
+    ordering = django_filters.OrderingFilter(
+        fields=(("registered_at", "registered_at"), ("reference", "reference")),
+    )
+
+    class Meta:
+        model = Registration
+        fields = []
+
+    def filter_search(self, queryset, name, value):
+        value = value.strip()
+        if not value:
+            return queryset
+        return queryset.filter(
+            Q(reference__icontains=value)
+            | Q(participant__email__icontains=value)
+            | Q(event__title__icontains=value)
+        )
+
+
+# ==================================================================
+# PRÉSENCES (phase S4)
+#   ?search=          (e-mail du participant, référence, titre de l'événement)
+#   ?status=PRESENT   ?method=QR_CODE   ?event=<uuid>   ?participant=<uuid>
+#   ?checked_in_from=2026-10-01  ?checked_in_to=2026-10-31
+#   ?ordering=-checked_in_at  (checked_in_at, created_at)
+# ==================================================================
+class SupervisionAttendanceFilter(django_filters.FilterSet):
+    search = django_filters.CharFilter(method="filter_search")
+    status = django_filters.ChoiceFilter(choices=AttendanceStatus.choices)
+    method = django_filters.ChoiceFilter(field_name="check_in_method", choices=CheckInMethod.choices)
+    event = django_filters.UUIDFilter(field_name="registration__event_id")
+    participant = django_filters.UUIDFilter(field_name="registration__participant_id")
+    checked_in_from = django_filters.DateFilter(field_name="checked_in_at", lookup_expr="date__gte")
+    checked_in_to = django_filters.DateFilter(field_name="checked_in_at", lookup_expr="date__lte")
+    ordering = django_filters.OrderingFilter(
+        fields=(("checked_in_at", "checked_in_at"), ("created_at", "created_at")),
+    )
+
+    class Meta:
+        model = Attendance
+        fields = []
+
+    def filter_search(self, queryset, name, value):
+        value = value.strip()
+        if not value:
+            return queryset
+        return queryset.filter(
+            Q(registration__participant__email__icontains=value)
+            | Q(registration__reference__icontains=value)
+            | Q(registration__event__title__icontains=value)
+        )

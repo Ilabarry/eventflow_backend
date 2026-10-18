@@ -4,6 +4,7 @@ Serializers du module Supervision.
 Phase S1 : journal d'audit (lecture seule).
 Phase S2 : utilisateurs, activité, organisateurs, raison des actions.
 Phase S3 : événements et catégories.
+Phase S4 : inscriptions et présences (lecture seule).
 
 Règle : chaque serializer liste ses champs EXPLICITEMENT. Jamais de
 fields = "__all__" : le mot de passe haché, les jetons ou tout champ
@@ -14,9 +15,11 @@ from rest_framework import serializers
 
 from apps.accounts.constants import ROLE_ADMIN
 from apps.accounts.models import User
+from apps.attendance.constants import NOT_CHECKED_IN
 from apps.attendance.models import Attendance
 from apps.events.models import Category, Event
 from apps.events.serializers import CategoryCreateSerializer
+from apps.registrations.constants import RegistrationStatus
 from apps.registrations.models import Registration
 from apps.supervision.constants import REASON_MAX_LENGTH, REASON_MIN_LENGTH
 from apps.supervision.models import AuditLog
@@ -324,3 +327,122 @@ class SupervisionCategoryWriteSerializer(CategoryCreateSerializer):
     class Meta(CategoryCreateSerializer.Meta):
         fields = ("id", "name", "slug", "description", "icon")
         read_only_fields = ("id", "slug")
+
+
+# ==================================================================
+# SORTIE : inscriptions (phase S4)
+# ==================================================================
+class SupervisionRegistrationSerializer(serializers.ModelSerializer):
+    """
+    Une inscription vue par l'administrateur.
+
+    attendance_status :
+        PRESENT / ABSENT   → une fiche de présence existe ;
+        NOT_CHECKED_IN     → inscription confirmée, pas encore de fiche ;
+        null               → inscription en attente ou annulée
+                             (le participant n'est pas attendu).
+    """
+
+    status_label = serializers.CharField(source="get_status_display", read_only=True)
+    participant_id = serializers.UUIDField(source="participant.id", read_only=True)
+    participant_email = serializers.EmailField(source="participant.email", read_only=True)
+    participant_name = serializers.CharField(source="participant.full_name", read_only=True)
+    event_id = serializers.UUIDField(source="event.id", read_only=True)
+    event_title = serializers.CharField(source="event.title", read_only=True)
+    event_start_at = serializers.DateTimeField(source="event.start_at", read_only=True)
+    event_status = serializers.CharField(source="event.status", read_only=True)
+    attendance_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Registration
+        fields = (
+            "id",
+            "reference",
+            "status",
+            "status_label",
+            "registered_at",
+            "cancelled_at",
+            "participant_id",
+            "participant_email",
+            "participant_name",
+            "event_id",
+            "event_title",
+            "event_start_at",
+            "event_status",
+            "attendance_status",
+        )
+        read_only_fields = fields
+
+    @staticmethod
+    def _attendance(obj):
+        # Relation inverse OneToOne : lève une exception s'il n'y a pas de
+        # fiche ; getattr(..., None) renvoie None à la place.
+        return getattr(obj, "attendance", None)
+
+    def get_attendance_status(self, obj) -> str | None:
+        attendance = self._attendance(obj)
+        if attendance is not None:
+            return attendance.status
+        if obj.status == RegistrationStatus.CONFIRMED:
+            return NOT_CHECKED_IN
+        return None
+
+
+class RegistrationAttendanceSerializer(serializers.ModelSerializer):
+    """Fiche de présence affichée dans le détail d'une inscription."""
+
+    recorded_by_email = serializers.EmailField(source="recorded_by.email", read_only=True, default=None)
+
+    class Meta:
+        model = Attendance
+        fields = ("id", "status", "checked_in_at", "check_in_method", "recorded_by_email", "created_at")
+        read_only_fields = fields
+
+
+class SupervisionRegistrationDetailSerializer(SupervisionRegistrationSerializer):
+    organizer_email = serializers.EmailField(source="event.organizer.email", read_only=True)
+    attendance = serializers.SerializerMethodField()
+
+    class Meta(SupervisionRegistrationSerializer.Meta):
+        fields = SupervisionRegistrationSerializer.Meta.fields + (
+            "organizer_email",
+            "created_at",
+            "updated_at",
+            "attendance",
+        )
+        read_only_fields = fields
+
+    def get_attendance(self, obj) -> dict | None:
+        attendance = self._attendance(obj)
+        return RegistrationAttendanceSerializer(attendance).data if attendance else None
+
+
+# ==================================================================
+# SORTIE : présences (phase S4)
+# ==================================================================
+class SupervisionAttendanceSerializer(serializers.ModelSerializer):
+    registration_id = serializers.UUIDField(source="registration.id", read_only=True)
+    registration_reference = serializers.CharField(source="registration.reference", read_only=True)
+    participant_email = serializers.EmailField(source="registration.participant.email", read_only=True)
+    participant_name = serializers.CharField(source="registration.participant.full_name", read_only=True)
+    event_id = serializers.UUIDField(source="registration.event.id", read_only=True)
+    event_title = serializers.CharField(source="registration.event.title", read_only=True)
+    recorded_by_email = serializers.EmailField(source="recorded_by.email", read_only=True, default=None)
+
+    class Meta:
+        model = Attendance
+        fields = (
+            "id",
+            "status",
+            "checked_in_at",
+            "check_in_method",
+            "recorded_by_email",
+            "registration_id",
+            "registration_reference",
+            "participant_email",
+            "participant_name",
+            "event_id",
+            "event_title",
+            "created_at",
+        )
+        read_only_fields = fields

@@ -4,6 +4,7 @@ Selectors du module Supervision : lectures en base.
 Phase S1 : journal d'audit.
 Phase S2 : utilisateurs, activité d'un utilisateur, organisateurs.
 Phase S3 : événements et catégories.
+Phase S4 : inscriptions et présences (lecture seule).
 
 Les compteurs sont calculés en SQL par des SOUS-REQUÊTES (une par compteur)
 plutôt que par des jointures + COUNT : avec plusieurs jointures, les lignes
@@ -219,3 +220,44 @@ def get_supervision_categories() -> QuerySet[Category]:
 
 def get_supervision_category_by_id(category_id) -> Category | None:
     return get_supervision_categories().filter(pk=category_id).first()
+
+
+# ==================================================================
+# INSCRIPTIONS (S4)
+# ==================================================================
+def get_supervision_registrations() -> QuerySet[Registration]:
+    """
+    Toutes les inscriptions (tous statuts, tous événements).
+    La fiche de présence éventuelle est chargée dans la MÊME requête
+    (jointure gauche : attendance vaut None si le participant n'est pas venu).
+    """
+    return (
+        Registration.objects.select_related(
+            "participant",
+            "event",
+            "event__organizer",
+            "attendance",
+            "attendance__recorded_by",
+        )
+        .order_by("-registered_at")
+    )
+
+
+def get_supervision_registration_by_id(registration_id) -> Registration | None:
+    return get_supervision_registrations().filter(pk=registration_id).first()
+
+
+# ==================================================================
+# PRÉSENCES (S4)
+# ==================================================================
+def get_supervision_attendances() -> QuerySet[Attendance]:
+    """Toutes les fiches de présence, tous événements confondus."""
+    return (
+        Attendance.objects.select_related(
+            "registration",
+            "registration__participant",
+            "registration__event",
+            "recorded_by",
+        )
+        .order_by("-created_at")
+    )
