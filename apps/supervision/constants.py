@@ -104,3 +104,25 @@ REASON_MAX_LENGTH = 500
 
 # Nombre d'éléments récents affichés par rubrique dans /activity/.
 ACTIVITY_PREVIEW_SIZE = 10
+
+
+# ==================================================================
+# TABLEAU DE BORD, STATISTIQUES, ALERTES (phase S6)
+# ==================================================================
+DASHBOARD_NEW_USERS_DAYS = 30        # « nouveaux comptes » = créés depuis 30 jours
+DASHBOARD_AUDIT_WINDOW_DAYS = 7      # activité d'administration récente
+
+STATS_DEFAULT_MONTHS = 12            # ?months= par défaut
+STATS_MAX_MONTHS = 24                # plafond : évite des calculs trop lourds
+STATS_TOP_CITIES = 10
+
+ALERT_SECURITY_WINDOW_HOURS = 24     # refus de sécurité récents
+ALERT_STALE_PENDING_DAYS = 7         # inscription en attente « ancienne »
+ALERT_UPCOMING_WINDOW_DAYS = 7       # événement proche sans inscrit
+ALERT_SAMPLE_SIZE = 5                # exemples renvoyés par alerte
+
+
+class AlertLevel(models.TextChoices):
+    CRITICAL = "CRITICAL", _("Critique")
+    WARNING = "WARNING", _("Attention")
+    INFO = "INFO", _("Information")

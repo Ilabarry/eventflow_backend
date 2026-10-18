@@ -18,6 +18,11 @@ from apps.attendance.constants import AttendanceStatus, CheckInMethod
 from apps.events.constants import EventFormat, EventStatus
 from apps.registrations.constants import RegistrationStatus
 from apps.supervision.constants import AuditAction, AuditEntity, AuditResult
+from apps.supervision.dashboard_selectors import (
+    get_alerts,
+    get_dashboard_overview,
+    get_platform_statistics,
+)
 from apps.supervision.filters import (
     AuditLogFilter,
     OrganizerFilter,
@@ -45,9 +50,13 @@ from apps.supervision.selectors import (
     get_user_activity,
 )
 from apps.supervision.serializers import (
+    AlertSerializer,
     AuditLogSerializer,
+    DashboardSerializer,
     OrganizerSerializer,
     ReasonSerializer,
+    StatisticsQuerySerializer,
+    StatisticsSerializer,
     SupervisionAttendanceSerializer,
     SupervisionCategorySerializer,
     SupervisionCategoryWriteSerializer,
@@ -75,6 +84,7 @@ TAG_EVENTS = ["Supervision — Événements"]
 TAG_CATEGORIES = ["Supervision — Catégories"]
 TAG_REGISTRATIONS = ["Supervision — Inscriptions"]
 TAG_ATTENDANCE = ["Supervision — Présences"]
+TAG_DASHBOARD = ["Supervision — Tableau de bord"]
 
 ERR_401 = OpenApiResponse(description="Authentification requise (jeton JWT manquant ou expiré).")
 ERR_403 = OpenApiResponse(description="Accès réservé aux administrateurs.")
@@ -699,4 +709,69 @@ class SupervisionAttendanceListView(SupervisionAPIView):
             return invalid_filters(filterset)
         return paginated_response(
             request, self, filterset.qs, SupervisionAttendanceSerializer, "Liste des présences.",
+        )
+
+
+# ==================================================================
+# TABLEAU DE BORD, STATISTIQUES, ALERTES (phase S6)
+# ==================================================================
+class DashboardView(SupervisionAPIView):
+    """GET /api/supervision/dashboard/"""
+
+    @extend_schema(
+        tags=TAG_DASHBOARD,
+        summary="Tableau de bord",
+        description="Chiffres clés de la plateforme, recalculés à chaque appel.",
+        responses={200: DashboardSerializer, 401: ERR_401, 403: ERR_403, 429: ERR_429},
+    )
+    def get(self, request):
+        return APIResponse.success(
+            data=DashboardSerializer(get_dashboard_overview()).data,
+            message="Tableau de bord.",
+        )
+
+
+class StatisticsView(SupervisionAPIView):
+    """GET /api/supervision/statistics/?months=12"""
+
+    @extend_schema(
+        tags=TAG_DASHBOARD,
+        summary="Statistiques",
+        description=(
+            "Évolution mensuelle (nouveaux comptes, événements créés, inscriptions, "
+            "arrivées) et répartitions par catégorie, ville, format et statut."
+        ),
+        parameters=[
+            OpenApiParameter("months", int, description="Nombre de mois (1 à 24, défaut 12)."),
+        ],
+        responses={200: StatisticsSerializer, 400: OpenApiResponse(description="months invalide."),
+                   401: ERR_401, 403: ERR_403, 429: ERR_429},
+    )
+    def get(self, request):
+        query = StatisticsQuerySerializer(data=request.GET)
+        if not query.is_valid():
+            return invalid_data(query)
+        stats = get_platform_statistics(query.validated_data["months"])
+        return APIResponse.success(data=StatisticsSerializer(stats).data, message="Statistiques.")
+
+
+class AlertsView(SupervisionAPIView):
+    """GET /api/supervision/alerts/"""
+
+    @extend_schema(
+        tags=TAG_DASHBOARD,
+        summary="Alertes",
+        description=(
+            "Situations qui demandent l'attention d'un administrateur (refus de "
+            "sécurité récents, événements terminés encore publiés, inscriptions en "
+            "attente anciennes...). Seules les alertes déclenchées sont renvoyées, "
+            "les plus graves d'abord."
+        ),
+        responses={200: AlertSerializer(many=True), 401: ERR_401, 403: ERR_403, 429: ERR_429},
+    )
+    def get(self, request):
+        alerts = get_alerts()
+        return APIResponse.success(
+            data=AlertSerializer(alerts, many=True).data,
+            message=f"{len(alerts)} alerte(s).",
         )

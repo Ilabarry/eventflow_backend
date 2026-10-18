@@ -5,6 +5,7 @@ Phase S1 : journal d'audit (lecture seule).
 Phase S2 : utilisateurs, activité, organisateurs, raison des actions.
 Phase S3 : événements et catégories.
 Phase S4 : inscriptions et présences (lecture seule).
+Phase S6 : tableau de bord, statistiques, alertes (format des chiffres).
 
 Règle : chaque serializer liste ses champs EXPLICITEMENT. Jamais de
 fields = "__all__" : le mot de passe haché, les jetons ou tout champ
@@ -21,7 +22,13 @@ from apps.events.models import Category, Event
 from apps.events.serializers import CategoryCreateSerializer
 from apps.registrations.constants import RegistrationStatus
 from apps.registrations.models import Registration
-from apps.supervision.constants import REASON_MAX_LENGTH, REASON_MIN_LENGTH
+from apps.supervision.constants import (
+    REASON_MAX_LENGTH,
+    REASON_MIN_LENGTH,
+    STATS_DEFAULT_MONTHS,
+    STATS_MAX_MONTHS,
+    AlertLevel,
+)
 from apps.supervision.models import AuditLog
 
 
@@ -446,3 +453,136 @@ class SupervisionAttendanceSerializer(serializers.ModelSerializer):
             "created_at",
         )
         read_only_fields = fields
+
+
+# ==================================================================
+# PHASE S6 : tableau de bord
+# Ces serializers décrivent le FORMAT des chiffres (pour Swagger et
+# pour qu'Angular sache exactement quels champs il reçoit).
+# ==================================================================
+class DashboardUsersSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    active = serializers.IntegerField()
+    suspended = serializers.IntegerField()
+    participants = serializers.IntegerField()
+    organizers = serializers.IntegerField()
+    admins = serializers.IntegerField()
+    new_last_30_days = serializers.IntegerField()
+
+
+class DashboardEventsSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    draft = serializers.IntegerField()
+    published = serializers.IntegerField()
+    completed = serializers.IntegerField()
+    cancelled = serializers.IntegerField()
+    upcoming = serializers.IntegerField(help_text="Publiés et pas encore commencés.")
+
+
+class DashboardRegistrationsSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    pending = serializers.IntegerField()
+    confirmed = serializers.IntegerField()
+    cancelled = serializers.IntegerField()
+
+
+class DashboardAttendanceSerializer(serializers.Serializer):
+    present = serializers.IntegerField()
+    absent = serializers.IntegerField()
+    expected = serializers.IntegerField(
+        help_text="Inscriptions confirmées à des événements déjà commencés.",
+    )
+    attendance_rate = serializers.FloatField(help_text="present / expected x 100.")
+
+
+class DashboardCategoriesSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    active = serializers.IntegerField()
+    inactive = serializers.IntegerField()
+
+
+class DashboardAuditSerializer(serializers.Serializer):
+    actions_last_7_days = serializers.IntegerField()
+    denied_last_7_days = serializers.IntegerField()
+
+
+class DashboardSerializer(serializers.Serializer):
+    generated_at = serializers.DateTimeField()
+    users = DashboardUsersSerializer()
+    events = DashboardEventsSerializer()
+    registrations = DashboardRegistrationsSerializer()
+    attendance = DashboardAttendanceSerializer()
+    categories = DashboardCategoriesSerializer()
+    audit = DashboardAuditSerializer()
+
+
+# ==================================================================
+# PHASE S6 : statistiques
+# ==================================================================
+class StatisticsQuerySerializer(serializers.Serializer):
+    """Paramètre ?months= (entrée)."""
+
+    months = serializers.IntegerField(
+        required=False,
+        default=STATS_DEFAULT_MONTHS,
+        min_value=1,
+        max_value=STATS_MAX_MONTHS,
+        error_messages={
+            "invalid": "months doit être un nombre entier.",
+            "min_value": "months doit valoir au moins 1.",
+            "max_value": f"months ne peut pas dépasser {STATS_MAX_MONTHS}.",
+        },
+    )
+
+
+class MonthlyPointSerializer(serializers.Serializer):
+    month = serializers.CharField(help_text="AAAA-MM")
+    new_users = serializers.IntegerField()
+    events_created = serializers.IntegerField()
+    registrations = serializers.IntegerField()
+    check_ins = serializers.IntegerField()
+
+
+class CategoryCountSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    events = serializers.IntegerField()
+
+
+class CityCountSerializer(serializers.Serializer):
+    city = serializers.CharField()
+    events = serializers.IntegerField()
+
+
+class FormatCountSerializer(serializers.Serializer):
+    format = serializers.CharField()
+    events = serializers.IntegerField()
+
+
+class StatusCountSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    total = serializers.IntegerField()
+
+
+class StatisticsSerializer(serializers.Serializer):
+    months = serializers.IntegerField()
+    since = serializers.DateField()
+    monthly = MonthlyPointSerializer(many=True)
+    events_by_category = CategoryCountSerializer(many=True)
+    events_by_city = CityCountSerializer(many=True)
+    events_by_format = FormatCountSerializer(many=True)
+    registrations_by_status = StatusCountSerializer(many=True)
+
+
+# ==================================================================
+# PHASE S6 : alertes
+# ==================================================================
+class AlertSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    level = serializers.ChoiceField(choices=AlertLevel.choices)
+    message = serializers.CharField()
+    count = serializers.IntegerField()
+    samples = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="Quelques exemples (5 au maximum) pour agir rapidement.",
+    )

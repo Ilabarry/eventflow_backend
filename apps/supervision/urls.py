@@ -7,8 +7,10 @@ Incluses dans eventflow_backend/urls.py sous le préfixe /api/supervision/.
 from django.urls import path
 
 from apps.supervision.views import (
+    AlertsView,
     AuditLogDetailView,
     AuditLogListView,
+    DashboardView,
     OrganizerDetailView,
     OrganizerListView,
     SupervisionAttendanceListView,
@@ -21,6 +23,7 @@ from apps.supervision.views import (
     SupervisionEventListView,
     SupervisionRegistrationDetailView,
     SupervisionRegistrationListView,
+    StatisticsView,
     UserActivateView,
     UserActivityView,
     UserDetailView,
@@ -31,6 +34,11 @@ from apps.supervision.views import (
 app_name = "supervision"
 
 urlpatterns = [
+    # Tableau de bord (S6)
+    path("dashboard/", DashboardView.as_view(), name="dashboard"),
+    path("statistics/", StatisticsView.as_view(), name="statistics"),
+    path("alerts/", AlertsView.as_view(), name="alerts"),
+
     path("audit-logs/", AuditLogListView.as_view(), name="audit-log-list"),
     path("audit-logs/<uuid:pk>/", AuditLogDetailView.as_view(), name="audit-log-detail"),
 
