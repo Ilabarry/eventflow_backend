@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-
 import uuid
 
 from django.db import models
@@ -7,8 +5,6 @@ from django.db import models
 
 class Certificate(models.Model):
     """Représente un certificat de participation à un événement."""
-
-=======
 """
 Modèle Certificate pour EVENTFLOW.
 
@@ -42,12 +38,10 @@ class Certificate(models.Model):
     # ------------------------------------------------------------------
     # Identifiant
     # ------------------------------------------------------------------
->>>>>>> barry
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
         editable=False,
-<<<<<<< HEAD
     )
 
     reference = models.UUIDField(
@@ -68,9 +62,7 @@ class Certificate(models.Model):
 
     def __str__(self):
         return f"Certificat {self.reference}"
-=======
         verbose_name="Identifiant",
-    )
 
     # ------------------------------------------------------------------
     # Relation
@@ -189,4 +181,3 @@ class Certificate(models.Model):
     def can_transition_to(self, new_status: str) -> bool:
         allowed = ALLOWED_STATUS_TRANSITIONS.get(self.status, [])
         return new_status in allowed
->>>>>>> barry
