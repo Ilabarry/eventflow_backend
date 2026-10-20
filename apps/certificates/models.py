@@ -181,3 +181,4 @@ class Certificate(models.Model):
     def can_transition_to(self, new_status: str) -> bool:
         allowed = ALLOWED_STATUS_TRANSITIONS.get(self.status, [])
         return new_status in allowed
+        return new_status in allowed
