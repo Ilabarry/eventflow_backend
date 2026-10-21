@@ -53,3 +53,8 @@ class NotificationSelector:
             user=user,
             pk=notification_id,
         ).first()
+
+    @staticmethod
+    def get_recent_notifications(*, user, limit: int = 5):
+        """Retourne les N dernières notifications d'un utilisateur (pour le dropdown)."""
+        return Notification.objects.filter(user=user).order_by("-created_at")[:limit]

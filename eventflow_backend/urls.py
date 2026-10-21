@@ -25,14 +25,11 @@ urlpatterns = [
     path("api/", include("apps.registrations.urls")),
     path("api/", include("apps.payments.urls")),
     path("api/", include("apps.attendance.urls")),
-<<<<<<< HEAD
     path("api/supervision/", include("apps.supervision.urls")),
-=======
     path("api/", include("apps.dashboards.urls")),
     path("api/", include("apps.notifications.urls")),
     path("api/", include("apps.tickets.urls")),
     path("api/", include("apps.certificates.urls")),
->>>>>>> bc3c6f3e09332a148377e03cef4343e7c45ee1a0
 ]
 
 if settings.DEBUG:

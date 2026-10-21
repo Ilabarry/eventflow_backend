@@ -18,6 +18,8 @@ from .models import Notification
 from .serializers import NotificationSerializer
 from .selectors import NotificationSelector
 from .services import NotificationService
+from apps.notifications.constants import NotificationType
+from .constants import NotificationType
 
 
 class NotificationListView(GenericAPIView):
@@ -47,7 +49,7 @@ class NotificationListView(GenericAPIView):
 
         notification_type = request.query_params.get("type")
 
-        if notification_type and notification_type not in Notification.Type.values:
+        if notification_type and notification_type not in NotificationType.values:
             return APIResponse.error(
                 message="Le type de notification est invalide.",
                 errors={
