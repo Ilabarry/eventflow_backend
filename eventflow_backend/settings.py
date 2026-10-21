@@ -155,21 +155,19 @@ REST_FRAMEWORK = {
         'rest_framework.filters.OrderingFilter',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-    # Handler d'exceptions personnalisé
     'EXCEPTION_HANDLER': 'common.exceptions.handlers.custom_exception_handler',
-    # Débits utilisés UNIQUEMENT par les vues qui déclarent un scope
-    # (aucune limitation n'est appliquée par défaut aux autres modules).
+    # ✅ UN SEUL DEFAULT_THROTTLE_RATES (fusion des deux)
+    'DEFAULT_THROTTLE_CLASSES': [],
     'DEFAULT_THROTTLE_RATES': {
+        # Supervision
         'supervision_read': config('SUPERVISION_READ_RATE', default='300/min'),
         'supervision_action': config('SUPERVISION_ACTION_RATE', default='30/min'),
+        # Attendance
+        'attendance_checkin': '60/min',
+        'attendance_qr': '120/min',
+        # Certificates
+        'certificate_verify': '30/min',
     },
-
-    "DEFAULT_THROTTLE_CLASSES": [],
-    "DEFAULT_THROTTLE_RATES": {
-        "attendance_checkin": "60/min",
-        "attendance_qr": "120/min",
-        "certificate_verify": "30/min",
-    }
 }
 
 SIMPLE_JWT = {

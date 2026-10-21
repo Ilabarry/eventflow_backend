@@ -1,15 +1,11 @@
-import uuid
-
-from django.db import models
-
-
-class Certificate(models.Model):
-    """Représente un certificat de participation à un événement."""
 """
 Modèle Certificate pour EVENTFLOW.
 
 Un certificat est émis pour une inscription après vérification de
 l'éligibilité (Registration CONFIRMED + Attendance PRESENT + Event terminé).
+
+Relation :
+    Registration 1 ──── 0..1 Certificate
 """
 
 import uuid
@@ -42,27 +38,8 @@ class Certificate(models.Model):
         primary_key=True,
         default=uuid.uuid4,
         editable=False,
+        verbose_name=_("Identifiant"),
     )
-
-    reference = models.UUIDField(
-        default=uuid.uuid4,
-        unique=True,
-        editable=False,
-    )
-
-    issued_at = models.DateTimeField(auto_now_add=True)
-
-    pdf_file = models.FileField(
-        upload_to="certificates/",
-        blank=True,
-        null=True,
-    )
-
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"Certificat {self.reference}"
-        verbose_name="Identifiant",
 
     # ------------------------------------------------------------------
     # Relation
@@ -71,7 +48,7 @@ class Certificate(models.Model):
         Registration,
         on_delete=models.CASCADE,
         related_name="certificate",
-        verbose_name="Inscription",
+        verbose_name=_("Inscription"),
     )
 
     # ------------------------------------------------------------------
@@ -81,13 +58,13 @@ class Certificate(models.Model):
         max_length=REFERENCE_MAX_LENGTH,
         unique=True,
         db_index=True,
-        verbose_name="Référence",
+        verbose_name=_("Référence"),
     )
     verification_code = models.CharField(
         max_length=VERIFICATION_CODE_MAX_LENGTH,
         unique=True,
         db_index=True,
-        verbose_name="Code de vérification",
+        verbose_name=_("Code de vérification"),
     )
 
     # ------------------------------------------------------------------
@@ -98,7 +75,7 @@ class Certificate(models.Model):
         choices=CertificateStatus.choices,
         default=CertificateStatus.PENDING,
         db_index=True,
-        verbose_name="Statut",
+        verbose_name=_("Statut"),
     )
 
     # ------------------------------------------------------------------
@@ -108,7 +85,7 @@ class Certificate(models.Model):
         upload_to="certificates/%Y/",
         null=True,
         blank=True,
-        verbose_name="Fichier PDF",
+        verbose_name=_("Fichier PDF"),
     )
 
     # ------------------------------------------------------------------
@@ -117,12 +94,12 @@ class Certificate(models.Model):
     issued_at = models.DateTimeField(
         auto_now_add=True,
         db_index=True,
-        verbose_name="Date d'émission",
+        verbose_name=_("Date d'émission"),
     )
     revoked_at = models.DateTimeField(
         null=True,
         blank=True,
-        verbose_name="Date de révocation",
+        verbose_name=_("Date de révocation"),
     )
     revoked_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -130,26 +107,29 @@ class Certificate(models.Model):
         null=True,
         blank=True,
         related_name="revoked_certificates",
-        verbose_name="Révoqué par",
+        verbose_name=_("Révoqué par"),
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
-        verbose_name="Date de création",
+        verbose_name=_("Date de création"),
     )
     updated_at = models.DateTimeField(
         auto_now=True,
-        verbose_name="Date de mise à jour",
+        verbose_name=_("Date de mise à jour"),
     )
 
     # ------------------------------------------------------------------
     # Méta
     # ------------------------------------------------------------------
     class Meta:
-        verbose_name = "Certificat"
-        verbose_name_plural = "Certificats"
+        verbose_name = _("Certificat")
+        verbose_name_plural = _("Certificats")
         ordering = ["-issued_at"]
         indexes = [
-            models.Index(fields=["status", "-issued_at"], name="idx_cert_status_issued"),
+            models.Index(
+                fields=["status", "-issued_at"],
+                name="idx_cert_status_issued",
+            ),
         ]
 
     def __str__(self):
@@ -180,5 +160,4 @@ class Certificate(models.Model):
     # ------------------------------------------------------------------
     def can_transition_to(self, new_status: str) -> bool:
         allowed = ALLOWED_STATUS_TRANSITIONS.get(self.status, [])
-        return new_status in allowed
         return new_status in allowed
