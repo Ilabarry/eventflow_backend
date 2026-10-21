@@ -235,6 +235,25 @@ class UserSupervisionService:
             request=request,
         )
 
+        # ⚠️ NOUVEAU : notifier l'utilisateur suspendu
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=target,
+                    title="Votre compte a été suspendu",
+                    message=(
+                        "Votre compte EVENTFLOW a été suspendu par un administrateur. "
+                        "Contactez le support pour plus d'informations."
+                    ),
+                    notification_type=NotificationType.SYSTEM,
+                    related_entity_type="user",
+                    related_entity_id=str(target.id),
+                )
+        except Exception as e:
+            logger.warning("Notification failed on user suspend | err=%s", e)
+
     # --- actions ---------------------------------------------------------
     @classmethod
     def suspend(cls, *, actor, user_id, reason: str, request=None) -> User:
@@ -263,6 +282,25 @@ class UserSupervisionService:
                     metadata={"target_email": target.email, "revoked_refresh_tokens": revoked},
                     request=request,
                 )
+
+                # ⚠️ NOUVEAU : notifier l'utilisateur réactivé
+                try:
+                    with transaction.atomic():
+                        from apps.notifications.constants import NotificationType
+                        from apps.notifications.services import NotificationService
+                        NotificationService.create_notification(
+                            user=target,
+                            title="Votre compte a été réactivé",
+                            message=(
+                                "Votre compte EVENTFLOW a été réactivé. "
+                                "Vous pouvez vous reconnecter."
+                            ),
+                            notification_type=NotificationType.SYSTEM,
+                            related_entity_type="user",
+                            related_entity_id=str(target.id),
+                        )
+                except Exception as e:
+                    logger.warning("Notification failed on user activate | err=%s", e)
 
         if denial is not None:
             cls._log_denied(
@@ -297,6 +335,25 @@ class UserSupervisionService:
                     metadata={"target_email": target.email},
                     request=request,
                 )
+
+                # ⚠️ NOUVEAU : notifier l'utilisateur réactivé
+                try:
+                    with transaction.atomic():
+                        from apps.notifications.constants import NotificationType
+                        from apps.notifications.services import NotificationService
+                        NotificationService.create_notification(
+                            user=target,
+                            title="Votre compte a été réactivé",
+                            message=(
+                                "Votre compte EVENTFLOW a été réactivé. "
+                                "Vous pouvez vous reconnecter."
+                            ),
+                            notification_type=NotificationType.SYSTEM,
+                            related_entity_type="user",
+                            related_entity_id=str(target.id),
+                        )
+                except Exception as e:
+                    logger.warning("Notification failed on user activate | err=%s", e)
 
         if denial is not None:
             cls._log_denied(

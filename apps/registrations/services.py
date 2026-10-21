@@ -172,6 +172,26 @@ class RegistrationService:
             registration.reference, locked_event.id, participant.email, initial_status,
         )
 
+                # ⚠️ NOUVEAU : notifier l'organisateur
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=locked_event.organizer,
+                    title="Nouvelle inscription",
+                    message=(
+                        f"{participant.full_name} s'est inscrit à « {locked_event.title} ». "
+                        f"Référence : {registration.reference}."
+                    ),
+                    notification_type=NotificationType.REGISTRATION,
+                    related_entity_type="registration",
+                    related_entity_id=str(registration.id),
+                    metadata={"url": f"/organizer/participants/{registration.id}"},
+                )
+        except Exception as e:
+            logger.warning("Notification failed on registration creation | err=%s", e)
+
         return registration
 
     # ------------------------------------------------------------------

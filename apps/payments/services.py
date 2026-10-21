@@ -199,9 +199,13 @@ class PaymentService:
             payment.metadata = {"provider_message": result.message}
             payment.save()
 
-            # 9. Si SUCCESS → confirmer la Registration
+            # 9. Si SUCCESS → confirmer la Registration ET émettre le ticket
             if payment.status == PaymentStatus.SUCCESS:
                 RegistrationService.confirm_registration(
+                    registration=locked_registration
+                )
+                from apps.tickets.services import TicketService
+                TicketService.issue_ticket_for_registration(
                     registration=locked_registration
                 )
 
@@ -257,6 +261,24 @@ class PaymentService:
             registration=payment.registration
         )
 
+                # Confirmer la Registration
+        RegistrationService.confirm_registration(
+            registration=payment.registration
+        )
+
+        # ✅ Émettre le ticket (idempotent)
+        try:
+            from apps.tickets.services import TicketService
+            TicketService.issue_ticket_for_registration(
+                registration=payment.registration
+            )
+        except Exception as e:
+            logger.exception(
+                "Ticket issuance failed after payment SUCCESS | payment=%s | reg=%s",
+                payment.transaction_reference,
+                payment.registration.reference,
+            )
+
         logger.info(
             "Payment marked as SUCCESS | ref=%s | reg=%s",
             payment.transaction_reference, payment.registration.reference,
@@ -281,6 +303,26 @@ class PaymentService:
                 )
         except Exception as e:
             logger.warning("Notification failed on payment success | err=%s", e)
+
+        # ⚠️ NOUVEAU : notifier l'organisateur
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=payment.registration.event.organizer,
+                    title="Paiement reçu",
+                    message=(
+                        f"Un paiement de {payment.amount} {payment.currency} a été reçu "
+                        f"pour « {payment.registration.event.title} »."
+                    ),
+                    notification_type=NotificationType.PAYMENT,
+                    related_entity_type="payment",
+                    related_entity_id=str(payment.id),
+                    metadata={"url": f"/organizer/paiements/{payment.id}"},
+                )
+        except Exception as e:
+            logger.warning("Notification failed on payment success (organizer) | err=%s", e)
 
         return payment
 
