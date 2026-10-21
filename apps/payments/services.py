@@ -9,6 +9,7 @@ Service métier du module Payment.
 """
 
 import logging
+from django.db import transaction
 import secrets
 
 from django.conf import settings
@@ -260,6 +261,27 @@ class PaymentService:
             "Payment marked as SUCCESS | ref=%s | reg=%s",
             payment.transaction_reference, payment.registration.reference,
         )
+
+        # ⚠️ NOUVEAU : notifier le participant
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=payment.registration.participant,
+                    title="Paiement réussi",
+                    message=(
+                        f"Votre paiement de {payment.amount} {payment.currency} "
+                        f"pour « {payment.registration.event.title} » est confirmé."
+                    ),
+                    notification_type=NotificationType.PAYMENT,
+                    related_entity_type="payment",
+                    related_entity_id=str(payment.id),
+                    metadata={"url": f"/participant/paiements/{payment.id}"},
+                )
+        except Exception as e:
+            logger.warning("Notification failed on payment success | err=%s", e)
+
         return payment
 
     # ------------------------------------------------------------------
@@ -288,6 +310,27 @@ class PaymentService:
         payment.save()
 
         logger.info("Payment marked as FAILED | ref=%s", payment.transaction_reference)
+
+        # ⚠️ NOUVEAU : notifier le participant
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=payment.registration.participant,
+                    title="Paiement échoué",
+                    message=(
+                        f"Votre paiement pour « {payment.registration.event.title} » "
+                        f"a échoué. Vous pouvez réessayer."
+                    ),
+                    notification_type=NotificationType.PAYMENT,
+                    related_entity_type="payment",
+                    related_entity_id=str(payment.id),
+                    metadata={"url": f"/participant/paiements/{payment.id}"},
+                )
+        except Exception as e:
+            logger.warning("Notification failed on payment failure | err=%s", e)
+
         return payment
 
     # ------------------------------------------------------------------

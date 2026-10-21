@@ -10,6 +10,7 @@ Services métier du module Tickets.
 import hashlib
 import hmac
 import logging
+from django.db import transaction
 import secrets
 
 from django.conf import settings
@@ -234,6 +235,27 @@ class TicketService:
             ticket.reference, registration.reference,
             ticket_type.name if ticket_type else "none",
         )
+
+        # ⚠️ NOUVEAU : notifier le participant
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=registration.participant,
+                    title="Votre ticket est prêt",
+                    message=(
+                        f"Votre ticket pour « {registration.event.title} » est disponible. "
+                        f"Référence : {ticket.reference}."
+                    ),
+                    notification_type=NotificationType.TICKET,
+                    related_entity_type="ticket",
+                    related_entity_id=str(ticket.id),
+                    metadata={"url": f"/participant/tickets/{ticket.id}"},
+                )
+        except Exception as e:
+            logger.warning("Notification failed on ticket issue | err=%s", e)
+
         return ticket
 
     # ------------------------------------------------------------------
