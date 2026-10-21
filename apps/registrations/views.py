@@ -86,6 +86,7 @@ class RegistrationListCreateView(APIView):
         registration = RegistrationService.create_registration(
             participant=request.user,
             event=serializer.event,
+            ticket_type=serializer.ticket_type,  # ← AJOUT
         )
 
         return APIResponse.created(

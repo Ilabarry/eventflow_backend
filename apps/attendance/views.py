@@ -1,3 +1,14 @@
+from rest_framework.throttling import UserRateThrottle
+from apps.attendance.filters import AttendanceFilter
+
+
+class CheckInThrottle(UserRateThrottle):
+    scope = "attendance_checkin"
+
+
+class QRCheckInThrottle(UserRateThrottle):
+    scope = "attendance_qr"
+    
 """
 Vues API du module Attendance.
 
@@ -37,6 +48,7 @@ from apps.attendance.serializers import (
     EventAttendanceRowSerializer,
     MarkAbsentSerializer,
     MyAttendanceSerializer,
+    QRCheckInSerializer,
 )
 from apps.attendance.services import AttendanceService
 from apps.events.models import Event
@@ -70,6 +82,7 @@ class CheckInView(APIView):
     """POST /api/attendance/check-in/"""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [CheckInThrottle]
 
     @extend_schema(
         tags=TAG,
@@ -100,6 +113,44 @@ class CheckInView(APIView):
             message="Présence enregistrée avec succès.",
         )
 
+# ==================================================================
+# ORGANISATEUR — Check-in par QR code
+# ==================================================================
+class QRCheckInView(APIView):
+    """POST /api/attendance/check-in/qr/"""
+
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [QRCheckInThrottle]
+
+    @extend_schema(
+        tags=TAG,
+        summary="Check-in via QR code",
+        description=(
+            "Enregistre la présence d'un participant via le QR code de son ticket. "
+            "Le QR code est vérifié cryptographiquement (signature HMAC). "
+            "Le ticket passe automatiquement à USED. "
+            "Réservé à l'organisateur de l'événement ou à un administrateur."
+        ),
+        request=QRCheckInSerializer,
+        responses={
+            201: AttendanceSerializer,
+            400: OpenApiResponse(description="QR code invalide ou falsifié."),
+            401: _ERR_401, 403: _ERR_403, 404: _ERR_404, 409: _ERR_409,
+        },
+    )
+    def post(self, request):
+        serializer = QRCheckInSerializer(data=request.data)
+        if not serializer.is_valid():
+            return _invalid_data(serializer)
+
+        attendance = AttendanceService.check_in_by_qr(
+            qr_code=serializer.validated_data["qr_code"],
+            performed_by=request.user,
+        )
+        return APIResponse.created(
+            data=AttendanceSerializer(get_attendance_by_id(attendance.id)).data,
+            message="Présence enregistrée via QR code.",
+        )
 
 # ==================================================================
 # ORGANISATEUR — Déclarer un absent
@@ -155,6 +206,25 @@ class MyAttendanceView(APIView):
     def get(self, request):
         paginator = StandardPagination()
         page = paginator.paginate_queryset(get_user_attendances(request.user), request, view=self)
+        serializer = MyAttendanceSerializer(page, many=True)
+        return APIResponse.success(
+            data=paginator.get_paginated_response(serializer.data).data,
+            message="Mes présences.",
+        )
+
+    def get(self, request):
+        queryset = get_user_attendances(request.user)
+        
+        filterset = AttendanceFilter(request.GET, queryset=queryset)
+        if not filterset.is_valid():
+            return APIResponse.error(
+                message="Paramètres invalides.",
+                errors=filterset.errors,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(filterset.qs, request, view=self)
         serializer = MyAttendanceSerializer(page, many=True)
         return APIResponse.success(
             data=paginator.get_paginated_response(serializer.data).data,

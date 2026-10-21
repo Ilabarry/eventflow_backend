@@ -183,6 +183,72 @@ class PaymentRequired(BusinessException):
     default_detail = "Cet événement est payant. Un type de ticket est requis."
     default_code = "payment_required"
 
+
+    # ==================================================================
+# PAYMENT — Exceptions spécifiques
+# ==================================================================
+class PaymentAlreadySuccessful(BusinessException):
+    """Levée lorsqu'un paiement SUCCESS existe déjà pour une inscription."""
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Un paiement réussi existe déjà pour cette inscription."
+    default_code = "payment_already_successful"
+
+
+class PaymentNotFound(BusinessException):
+    """Levée lorsque le paiement est introuvable."""
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "Paiement introuvable."
+    default_code = "payment_not_found"
+
+
+class PaymentNotPayable(BusinessException):
+    """Levée lorsque l'inscription n'est pas payable (déjà confirmée, etc.)."""
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Cette inscription n'est pas payable."
+    default_code = "payment_not_payable"
+
+
+class PaymentAlreadyCancelled(BusinessException):
+    """Levée lorsqu'on annule un paiement déjà annulé."""
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Ce paiement est déjà annulé."
+    default_code = "payment_already_cancelled"
+
+
+class PaymentAlreadyRefunded(BusinessException):
+    """Levée lorsqu'on rembourse un paiement déjà remboursé."""
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Ce paiement est déjà remboursé."
+    default_code = "payment_already_refunded"
+
+
+class InvalidPaymentState(BusinessException):
+    """Levée lorsque l'état du paiement ne permet pas l'action demandée."""
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "L'état du paiement ne permet pas cette action."
+    default_code = "invalid_payment_state"
+
+
+class PaymentProviderUnavailable(BusinessException):
+    """Levée lorsque le provider de paiement est indisponible."""
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Le service de paiement est temporairement indisponible."
+    default_code = "payment_provider_unavailable"
+
+
+class PaymentProviderError(BusinessException):
+    """Levée lorsqu'une erreur survient côté provider."""
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = "Erreur du service de paiement."
+    default_code = "payment_provider_error"
+
+
+class PaymentOwnershipError(BusinessException):
+    """Levée lorsqu'un utilisateur tente d'accéder à un paiement qui n'est pas le sien."""
+    status_code = status.HTTP_403_FORBIDDEN
+    default_detail = "Vous n'êtes pas autorisé à accéder à ce paiement."
+    default_code = "payment_ownership_error"
+
 # ==================================================================
 # ATTENDANCE — Exceptions spécifiques
 # ==================================================================
@@ -216,3 +282,124 @@ class AlreadyCheckedIn(BusinessException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = "Ce participant est déjà enregistré comme présent."
     default_code = "already_checked_in"
+
+
+# ==================================================================
+# TICKETS — Exceptions spécifiques
+# ==================================================================
+class TicketTypeNotFound(BusinessException):
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "Type de ticket introuvable."
+    default_code = "ticket_type_not_found"
+
+
+class TicketTypeSoldOut(BusinessException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Ce type de ticket est épuisé."
+    default_code = "ticket_type_sold_out"
+
+
+class TicketTypeNotOnSale(BusinessException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Ce type de ticket n'est pas en vente actuellement."
+    default_code = "ticket_type_not_on_sale"
+
+
+class TicketTypeFromOtherEvent(BusinessException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Ce type de ticket n'appartient pas à cet événement."
+    default_code = "ticket_type_from_other_event"
+
+
+class TicketAlreadyExists(BusinessException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Un ticket existe déjà pour cette inscription."
+    default_code = "ticket_already_exists"
+
+
+class TicketNotFound(BusinessException):
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "Ticket introuvable."
+    default_code = "ticket_not_found"
+
+
+class TicketNotUsable(BusinessException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Ce ticket n'est plus utilisable."
+    default_code = "ticket_not_usable"
+
+
+class TicketOwnershipError(BusinessException):
+    status_code = status.HTTP_403_FORBIDDEN
+    default_detail = "Vous n'êtes pas autorisé à accéder à ce ticket."
+    default_code = "ticket_ownership_error"
+
+
+class BusinessException(APIException):
+    status_code = 400
+    default_detail = "Une erreur métier est survenue."
+    default_code = "business_error"
+
+    def __init__(self, detail=None, code=None, status_code=None):
+        super().__init__(detail=detail, code=code)
+        if status_code is not None:
+            self.status_code = status_code
+
+
+# ==================================================================
+# ATTENDANCE — Exceptions spécifiques
+# ==================================================================
+class InvalidQRCode(BusinessException):
+    """Levée lorsqu'un QR code est invalide ou falsifié."""
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "QR code invalide ou falsifié."
+    default_code = "invalid_qr_code"
+
+# ==================================================================
+# CERTIFICATES — Exceptions spécifiques
+# ==================================================================
+class CertificateNotFound(BusinessException):
+    status_code = status.HTTP_404_NOT_FOUND
+    default_detail = "Certificat introuvable."
+    default_code = "certificate_not_found"
+
+
+class CertificateNotEligible(BusinessException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Ce participant n'est pas éligible à un certificat."
+    default_code = "certificate_not_eligible"
+
+
+class CertificateAlreadyExists(BusinessException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Un certificat existe déjà pour cette inscription."
+    default_code = "certificate_already_exists"
+
+
+class CertificateAlreadyRevoked(BusinessException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Ce certificat est déjà révoqué."
+    default_code = "certificate_already_revoked"
+
+
+class CertificateGenerationError(BusinessException):
+    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+    default_detail = "Erreur lors de la génération du certificat."
+    default_code = "certificate_generation_error"
+
+
+class AttendanceRequired(BusinessException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Le participant doit être présent pour obtenir un certificat."
+    default_code = "attendance_required"
+
+
+class EventNotEnded(BusinessException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "L'événement n'est pas encore terminé."
+    default_code = "event_not_ended"
+
+class InvalidCertificateState(BusinessException):
+    status_code = 400
+    default_detail = "L'état du certificat ne permet pas cette action."
+    default_code = "invalid_certificate_state"

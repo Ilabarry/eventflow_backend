@@ -5,22 +5,10 @@ Services métier du module Registration.
 contre les accès concurrents. Deux participants ne doivent JAMAIS
 pouvoir dépasser la capacité d'un événement, même s'ils s'inscrivent
 simultanément.
-
-Stratégie :
-    1. Ouvrir une transaction.
-    2. Verrouiller la ligne de l'événement avec select_for_update().
-    3. Compter les inscriptions actives.
-    4. Vérifier la capacité.
-    5. Créer l'inscription.
-    6. Commit.
-
-Ce verrou est sur UNE ligne (l'événement), pas sur toute la table.
-Les inscriptions à d'autres événements ne sont pas bloquées.
 """
 
 import logging
 import secrets
-import string
 
 from django.db import IntegrityError, transaction
 
@@ -38,6 +26,7 @@ from apps.registrations.models import Registration
 from common.exceptions.business import (
     AlreadyRegistered,
     EventFull,
+    PaymentNotPayable,
     RegistrationAlreadyCancelled,
     RegistrationNotAllowed,
 )
@@ -53,14 +42,8 @@ class RegistrationService:
     # ------------------------------------------------------------------
     @staticmethod
     def generate_reference() -> str:
-        """
-        Génère une référence unique de type EVF-REG-2026-A8K3X2.
-
-        Utilise `secrets` (cryptographiquement sûr) et exclut les
-        caractères ambigus (0/O, 1/I/L) pour éviter les confusions.
-        """
+        """Génère une référence unique EVF-REG-YYYY-XXXXXX."""
         from django.utils import timezone
-
         year = timezone.now().year
         suffix = "".join(
             secrets.choice(REFERENCE_ALPHABET)
@@ -70,12 +53,7 @@ class RegistrationService:
 
     @staticmethod
     def _generate_unique_reference() -> str:
-        """
-        Génère une référence unique avec retry en cas de collision.
-
-        La probabilité de collision est très faible (32^6 ≈ 1 milliard),
-        mais on protège quand même.
-        """
+        """Génère une référence unique avec retry."""
         for _ in range(10):
             reference = RegistrationService.generate_reference()
             if not Registration.objects.filter(reference=reference).exists():
@@ -87,16 +65,16 @@ class RegistrationService:
     # ------------------------------------------------------------------
     @staticmethod
     @transaction.atomic
-    def create_registration(*, participant, event: Event) -> Registration:
+    def create_registration(
+        *, participant, event: Event, ticket_type=None
+    ) -> Registration:
         """
         Crée une inscription pour un participant à un événement.
 
-        ⚠️ CRITIQUE : on verrouille la ligne de l'événement pour éviter
-        le dépassement de capacité en cas d'inscriptions simultanées.
-
         Args:
             participant: L'utilisateur qui s'inscrit (request.user).
-            event: L'instance Event (récupérée par le serializer).
+            event: L'instance Event.
+            ticket_type: TicketType (obligatoire pour PAID, None pour FREE).
 
         Returns:
             L'instance Registration créée.
@@ -105,6 +83,7 @@ class RegistrationService:
             AlreadyRegistered: Si le participant a déjà une inscription active.
             EventFull: Si la capacité est atteinte.
             RegistrationNotAllowed: Si l'utilisateur n'est pas actif.
+            PaymentNotPayable: Si l'événement est PAID sans ticket_type.
         """
         # 1. Vérifier que le participant est actif
         if not participant.is_active:
@@ -113,8 +92,6 @@ class RegistrationService:
             )
 
         # 2. Verrouiller l'événement (SELECT ... FOR UPDATE)
-        #    Cela empêche deux transactions concurrentes de lire
-        #    le même compteur d'inscriptions avant insertion.
         locked_event = Event.objects.select_for_update().get(pk=event.pk)
 
         # 3. Vérifier la capacité (uniquement si LIMITED)
@@ -145,25 +122,44 @@ class RegistrationService:
             )
             raise AlreadyRegistered()
 
-        # 5. Déterminer le statut initial
-        #    - FREE → CONFIRMED immédiatement
-        #    - PAID → PENDING (en attente de paiement, futur module)
+        # 5. Vérifier le ticket_type pour les événements payants
+        if locked_event.participation_type == ParticipationType.PAID:
+            if ticket_type is None:
+                raise PaymentNotPayable(
+                    detail="Un type de ticket est obligatoire pour cet événement payant."
+                )
+            # Vérifier que le ticket_type appartient bien à l'événement
+            if ticket_type.event_id != locked_event.id:
+                raise PaymentNotPayable(
+                    detail="Le type de ticket n'appartient pas à cet événement."
+                )
+            # Vérifier que le ticket_type est actif
+            if not ticket_type.is_active:
+                raise PaymentNotPayable(
+                    detail="Ce type de ticket n'est plus disponible."
+                )
+            # Vérifier la disponibilité
+            if ticket_type.is_sold_out:
+                from common.exceptions.business import TicketTypeSoldOut
+                raise TicketTypeSoldOut()
+
+        # 6. Déterminer le statut initial
         initial_status = (
             RegistrationStatus.CONFIRMED
             if locked_event.participation_type == ParticipationType.FREE
             else RegistrationStatus.PENDING
         )
 
-        # 6. Créer l'inscription
+        # 7. Créer l'inscription
         try:
             registration = Registration.objects.create(
                 participant=participant,
                 event=locked_event,
+                ticket_type=ticket_type,
                 reference=RegistrationService._generate_unique_reference(),
                 status=initial_status,
             )
         except IntegrityError as e:
-            # La UniqueConstraint a bloqué (double inscription en concurrence)
             logger.warning(
                 "Registration IntegrityError | event=%s | user=%s | err=%s",
                 locked_event.id, participant.email, str(e),
@@ -183,15 +179,7 @@ class RegistrationService:
     @staticmethod
     @transaction.atomic
     def cancel_registration(*, registration: Registration, cancelled_by_user) -> Registration:
-        """
-        Annule une inscription.
-
-        L'inscription n'est PAS supprimée : son statut passe à CANCELLED
-        et cancelled_at est renseigné (soft delete).
-
-        Raises:
-            RegistrationAlreadyCancelled: Si déjà annulée.
-        """
+        """Annule une inscription."""
         if registration.status == RegistrationStatus.CANCELLED:
             raise RegistrationAlreadyCancelled()
 
@@ -216,20 +204,38 @@ class RegistrationService:
         """
         Confirme une inscription en PENDING.
 
-        Utilisé par :
-            - L'organisateur (confirmation manuelle)
-            - Le module Payment (confirmation automatique après paiement)
+        ⚠️ GARANTIE D'INTÉGRITÉ :
+        Si un `ticket_type` est défini (événement payant avec ticket),
+        le ticket est généré DANS LA MÊME TRANSACTION que la confirmation.
+        Si la génération du ticket échoue, la confirmation est ROLLBACKÉE
+        (la Registration reste PENDING).
+
+        Cela garantit qu'il n'existe jamais de Registration CONFIRMED
+        sans Ticket correspondant.
 
         Raises:
             RegistrationNotAllowed: Si la transition n'est pas autorisée.
+            Exception: Toute erreur de génération de ticket remonte
+                et déclenche le rollback.
         """
         if not registration.can_transition_to(RegistrationStatus.CONFIRMED):
             raise RegistrationNotAllowed(
                 detail=f"Transition '{registration.status}' → 'CONFIRMED' non autorisée."
             )
 
+        # 1. Mettre à jour le statut de la Registration
         registration.status = RegistrationStatus.CONFIRMED
         registration.save(update_fields=["status", "updated_at"])
+
+        # 2. Si un ticket_type est défini, générer le ticket
+        #    DANS LA MÊME TRANSACTION (rollback automatique si échec)
+        if registration.ticket_type is not None:
+            from apps.tickets.services import TicketService
+            ticket = TicketService.issue_ticket_for_registration(registration)
+            logger.info(
+                "Ticket issued on registration confirm | ticket=%s | reg=%s",
+                ticket.reference, registration.reference,
+            )
 
         logger.info(
             "Registration confirmed | ref=%s | by=%s",
