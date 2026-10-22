@@ -276,12 +276,17 @@ class EventDetailSerializer(serializers.ModelSerializer):
             "category",
             "organizer",
             "available_slots",
+            "registered_count",
             "created_at",
             "updated_at",
         )
 
     def get_available_slots(self, obj: Event) -> int | None:
         return obj.calculate_availability()
+
+    def get_registered_count(self, obj: Event) -> int:
+        from apps.registrations.selectors import count_active_registrations
+        return count_active_registrations(obj)
 
 
 # ==================================================================
@@ -322,12 +327,23 @@ class EventOrganizerSerializer(serializers.ModelSerializer):
             "published_at",
             "category",
             "available_slots",
+            "registered_count",
             "created_at",
             "updated_at",
         )
 
+    registered_count = serializers.SerializerMethodField()
+
+    def get_registered_count(self, obj):
+        from apps.registrations.selectors import count_active_registrations
+        return count_active_registrations(obj)
+    
     def get_available_slots(self, obj: Event) -> int | None:
         return obj.calculate_availability()
+
+    def get_registered_count(self, obj: Event) -> int:
+        from apps.registrations.selectors import count_active_registrations
+        return count_active_registrations(obj)
 
 
 # ==================================================================
