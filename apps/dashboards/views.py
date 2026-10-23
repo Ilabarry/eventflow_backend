@@ -71,7 +71,11 @@ class ParticipantDashboardView(APIView):
         dashboard_data = ParticipantDashboardService.get_dashboard(
             user=request.user,
         )
-        serializer = ParticipantDashboardSerializer(instance=dashboard_data)
+        # La requête permet à DRF de renvoyer l'URL complète de cover_image.
+        serializer = ParticipantDashboardSerializer(
+            instance=dashboard_data,
+            context={"request": request},
+        )
 
         return APIResponse.success(
             data=serializer.data,
