@@ -201,9 +201,15 @@ PAYMENT_DEVELOPMENT_ENABLED = config(
 # ------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:4200,http://127.0.0.1:4200',
+    default=(
+        'http://localhost:4200,'
+        'http://127.0.0.1:4200,'
+        'http://localhost:53772,'
+        'http://127.0.0.1:53772'
+    ),
     cast=Csv()
 )
+
 CORS_ALLOW_CREDENTIALS = True
 
 # ================================================================
