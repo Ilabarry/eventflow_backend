@@ -251,6 +251,7 @@ class EventDetailSerializer(serializers.ModelSerializer):
     organizer = UserSerializer(read_only=True)
     available_slots = serializers.SerializerMethodField()
     registered_count = serializers.SerializerMethodField()
+    ticket_types = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
@@ -278,6 +279,7 @@ class EventDetailSerializer(serializers.ModelSerializer):
             "organizer",
             "available_slots",
             "registered_count",
+            "ticket_types",
             "created_at",
             "updated_at",
         )
@@ -289,7 +291,12 @@ class EventDetailSerializer(serializers.ModelSerializer):
         from apps.registrations.selectors import count_active_registrations
         return count_active_registrations(obj)
 
+    def get_ticket_types(self, obj):
+        from apps.tickets.serializers import TicketTypePublicSerializer
+        active = obj.ticket_types.filter(is_active=True)
+        return TicketTypePublicSerializer(active, many=True, context=self.context).data   # ← .data OBLIGATOIRE
 
+    
 # ==================================================================
 # EVENT — Détail pour l'organisateur (avec access_url)
 # ==================================================================
