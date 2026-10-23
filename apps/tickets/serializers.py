@@ -116,6 +116,9 @@ class TicketListSerializer(serializers.ModelSerializer):
 
     event_title = serializers.CharField(source="registration.event.title", read_only=True)
     event_id = serializers.UUIDField(source="registration.event.id", read_only=True)
+    event_cover_image = serializers.ImageField(
+        source="registration.event.cover_image", read_only=True,
+    )
     ticket_type_name = serializers.CharField(source="ticket_type.name", read_only=True, default="Standard")
 
     class Meta:
@@ -123,7 +126,7 @@ class TicketListSerializer(serializers.ModelSerializer):
         fields = (
             "id", "reference", "status",
             "issued_at", "used_at",
-            "event_id", "event_title", "ticket_type_name",
+            "event_id", "event_title", "event_cover_image", "ticket_type_name",
         )
         read_only_fields = fields
 
