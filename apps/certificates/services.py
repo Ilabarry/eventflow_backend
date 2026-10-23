@@ -9,6 +9,8 @@ Services métier du module Certificates.
 """
 
 import logging
+from django.db import transaction
+
 import secrets
 
 from django.core.files.base import ContentFile
@@ -178,6 +180,26 @@ class CertificateService:
             certificate.reference, registration.reference,
         )
 
+        # ⚠️ NOUVEAU : notifier le participant
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=registration.participant,
+                    title="Votre certificat est disponible",
+                    message=(
+                        f"Votre certificat pour « {registration.event.title} » est prêt. "
+                        f"Référence : {certificate.reference}."
+                    ),
+                    notification_type=NotificationType.CERTIFICATE,
+                    related_entity_type="certificate",
+                    related_entity_id=str(certificate.id),
+                    metadata={"url": f"/participant/attestations/{certificate.id}"},
+                )
+        except Exception as e:
+            logger.warning("Notification failed on certificate generation | err=%s", e)
+
         return certificate
 
     # ------------------------------------------------------------------
@@ -204,6 +226,25 @@ class CertificateService:
             "Certificate revoked | ref=%s | by=%s",
             certificate.reference, revoked_by.id if revoked_by else "system",
         )
+
+        # ⚠️ NOUVEAU : notifier le participant
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=certificate.registration.participant,
+                    title="Certificat révoqué",
+                    message=(
+                        f"Votre certificat « {certificate.reference} » a été révoqué."
+                    ),
+                    notification_type=NotificationType.CERTIFICATE,
+                    related_entity_type="certificate",
+                    related_entity_id=str(certificate.id),
+                )
+        except Exception as e:
+            logger.warning("Notification failed on certificate revoke | err=%s", e)
+
         return certificate
 
     # ------------------------------------------------------------------

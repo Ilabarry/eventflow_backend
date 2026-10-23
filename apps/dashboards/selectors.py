@@ -1,5 +1,13 @@
 """Requêtes en lecture pour les dashboards EVENTFLOW."""
 
+from apps.dashboards.constants import (
+    ADMIN_RECENT_EVENTS_LIMIT,
+    ADMIN_RECENT_USERS_LIMIT,
+    PARTICIPANT_RECENT_REGISTRATIONS_LIMIT,
+    PARTICIPANT_UPCOMING_LIMIT,
+    RECENT_REGISTRATIONS_LIMIT,
+    UPCOMING_EVENTS_LIMIT,
+)
 from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 
@@ -14,10 +22,7 @@ from django.contrib.auth import get_user_model
 
 from apps.accounts.constants import ROLE_ADMIN, ROLE_ORGANIZER, ROLE_PARTICIPANT
 from apps.events.models import Event
-from apps.events.selectors import get_all_events, get_organizer_events
-
-UPCOMING_EVENTS_LIMIT = 5
-RECENT_REGISTRATIONS_LIMIT = 5
+from apps.events.selectors import get_all_events
 
 
 def get_organizer_event_summary(*, user) -> dict[str, int]:
@@ -136,8 +141,6 @@ def get_recent_organizer_registrations(
         .select_related("event", "participant")
         .order_by("-registered_at")[:limit]
     )
-PARTICIPANT_UPCOMING_LIMIT = 5
-PARTICIPANT_RECENT_REGISTRATIONS_LIMIT = 5
 
 
 def get_participant_summary(*, user) -> dict[str, int]:
@@ -211,9 +214,6 @@ def get_recent_participant_registrations(
 ) -> QuerySet[Registration]:
     """Dernières inscriptions personnelles du participant."""
     return get_user_registrations(user)[:limit]
-
-ADMIN_RECENT_EVENTS_LIMIT = 5
-ADMIN_RECENT_USERS_LIMIT = 10
 
 
 def get_admin_user_summary() -> dict[str, int]:

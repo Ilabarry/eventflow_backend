@@ -17,12 +17,10 @@ from django.utils import timezone
 
 from apps.events.constants import ParticipationType
 from apps.payments.constants import (
-    ACTIVE_STATUSES,
     DEFAULT_CURRENCY,
     REFERENCE_ALPHABET,
     REFERENCE_PREFIX,
     REFERENCE_SUFFIX_LENGTH,
-    PaymentMethod,
     PaymentProvider,
     PaymentStatus,
 )
@@ -77,12 +75,15 @@ class PaymentService:
 
         Règle absolue : le montant vient du backend, jamais d'Angular.
 
+        Priorité :
+            1. Prix du TicketType choisi (si défini et > 0)
+            2. Prix de base de l'Event (fallback)
+
         Returns:
             (amount: Decimal, currency: str)
 
         Raises:
-            PaymentNotPayable: Si l'événement est gratuit.
-            ValueError: Si l'événement payant n'a pas de prix.
+            PaymentNotPayable: Si l'événement est gratuit ou si aucun prix n'est défini.
         """
         event = registration.event
 
@@ -92,13 +93,23 @@ class PaymentService:
                 detail="Cet événement est gratuit, aucun paiement n'est nécessaire."
             )
 
-        # Événement payant → vérifier que base_price est défini
-        if not event.base_price or event.base_price <= 0:
+        # ✅ Priorité au prix du TicketType choisi
+        price = None
+        if registration.ticket_type_id and registration.ticket_type is not None:
+            tt_price = getattr(registration.ticket_type, "price", None)
+            if tt_price is not None:
+                price = tt_price
+
+        # Fallback : prix de base de l'événement
+        if price is None:
+            price = event.base_price
+
+        if price is None or price <= 0:
             raise PaymentNotPayable(
                 detail="Le prix de cet événement n'est pas défini correctement."
             )
 
-        return event.base_price, DEFAULT_CURRENCY
+        return price, DEFAULT_CURRENCY
 
     # ------------------------------------------------------------------
     # INITIATION D'UN PAIEMENT (CRITIQUE)
@@ -124,6 +135,7 @@ class PaymentService:
             6. Créer le Payment (PENDING).
             7. Appeler le provider.
             8. Mettre à jour le Payment avec la réponse.
+            9. Si SUCCESS → déléguer à mark_as_success() (confirm + ticket + notifs).
 
         Raises:
             PaymentNotPayable: Si la Registration n'est pas payable.
@@ -179,7 +191,7 @@ class PaymentService:
             amount, currency, provider_name,
         )
 
-        # 7. Appeler le provider (dans un try/except pour capturer les erreurs)
+        # 7. Appeler le provider
         try:
             provider = get_provider(provider_name)
             result = provider.initiate_payment(payment)
@@ -198,11 +210,13 @@ class PaymentService:
             payment.metadata = {"provider_message": result.message}
             payment.save()
 
-            # 9. Si SUCCESS → confirmer la Registration
+            # 9. Si SUCCESS → déléguer tout le pipeline (confirm + ticket + notifs)
             if payment.status == PaymentStatus.SUCCESS:
-                RegistrationService.confirm_registration(
-                    registration=locked_registration
-                )
+                # ⚠️ mark_as_success est idempotent : si déjà SUCCESS, il retourne
+                # le payment sans rien refaire. Ici payment.status == SUCCESS,
+                # donc on va directement au pipeline post-traitement via un
+                # helper interne pour éviter le check idempotent prématuré.
+                PaymentService._post_success_pipeline(payment=payment)
 
             return payment
 
@@ -225,20 +239,101 @@ class PaymentService:
             raise PaymentProviderError(detail="Erreur du service de paiement.")
 
     # ------------------------------------------------------------------
+    # PIPELINE POST-SUCCESS (interne)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _post_success_pipeline(*, payment: Payment) -> None:
+        """
+        Étapes à exécuter quand un Payment devient SUCCESS :
+            - Confirmer la Registration (idempotent)
+            - Émettre le Ticket (idempotent)
+            - Notifier le participant
+            - Notifier l'organisateur
+
+        ⚠️ Cette méthode doit être appelée UNE SEULE fois par transition
+        vers SUCCESS, dans une transaction englobante.
+        """
+        # 1. Confirmer la Registration
+        RegistrationService.confirm_registration(
+            registration=payment.registration
+        )
+
+        # 2. Émettre le ticket (idempotent)
+        try:
+            from apps.tickets.services import TicketService
+            TicketService.issue_ticket_for_registration(
+                registration=payment.registration
+            )
+        except Exception:
+            logger.exception(
+                "Ticket issuance failed after payment SUCCESS | payment=%s | reg=%s",
+                payment.transaction_reference,
+                payment.registration.reference,
+            )
+
+        # 3. Notifier le participant
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=payment.registration.participant,
+                    title="Paiement réussi",
+                    message=(
+                        f"Votre paiement de {payment.amount} {payment.currency} "
+                        f"pour « {payment.registration.event.title} » est confirmé."
+                    ),
+                    notification_type=NotificationType.PAYMENT,
+                    related_entity_type="payment",
+                    related_entity_id=str(payment.id),
+                    metadata={"url": f"/participant/paiements/{payment.id}"},
+                )
+        except Exception as e:
+            logger.warning("Notification failed on payment success | err=%s", e)
+
+        # 4. Notifier l'organisateur
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=payment.registration.event.organizer,
+                    title="Paiement reçu",
+                    message=(
+                        f"Un paiement de {payment.amount} {payment.currency} a été reçu "
+                        f"pour « {payment.registration.event.title} »."
+                    ),
+                    notification_type=NotificationType.PAYMENT,
+                    related_entity_type="payment",
+                    related_entity_id=str(payment.id),
+                    metadata={"url": f"/organizer/paiements/{payment.id}"},
+                )
+        except Exception as e:
+            logger.warning("Notification failed on payment success (organizer) | err=%s", e)
+
+    # ------------------------------------------------------------------
     # CONFIRMATION (appelée par simulate ou webhook)
     # ------------------------------------------------------------------
     @staticmethod
     @transaction.atomic
     def mark_as_success(*, payment: Payment, provider_reference: str = "") -> Payment:
         """
-        Marque un paiement comme SUCCESS et confirme la Registration.
+        Marque un paiement comme SUCCESS et exécute le pipeline post-success.
+
+        Idempotent : si le paiement est déjà SUCCESS, retourne l'instance
+        sans rien faire.
 
         Utilisé par :
             - Le simulateur (DevelopmentPaymentProvider)
             - Les futurs webhooks
         """
+        # ✅ Idempotence : déjà SUCCESS → ne rien refaire
         if payment.status == PaymentStatus.SUCCESS:
-            return payment  # idempotent
+            logger.debug(
+                "Payment already SUCCESS (idempotent) | ref=%s",
+                payment.transaction_reference,
+            )
+            return payment
 
         if not payment.can_transition_to(PaymentStatus.SUCCESS):
             raise InvalidPaymentState(
@@ -251,15 +346,14 @@ class PaymentService:
             payment.provider_reference = provider_reference
         payment.save()
 
-        # Confirmer la Registration
-        RegistrationService.confirm_registration(
-            registration=payment.registration
-        )
+        # ✅ Pipeline post-success (confirm + ticket + notifs)
+        PaymentService._post_success_pipeline(payment=payment)
 
         logger.info(
             "Payment marked as SUCCESS | ref=%s | reg=%s",
             payment.transaction_reference, payment.registration.reference,
         )
+
         return payment
 
     # ------------------------------------------------------------------
@@ -288,6 +382,27 @@ class PaymentService:
         payment.save()
 
         logger.info("Payment marked as FAILED | ref=%s", payment.transaction_reference)
+
+        # Notifier le participant
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=payment.registration.participant,
+                    title="Paiement échoué",
+                    message=(
+                        f"Votre paiement pour « {payment.registration.event.title} » "
+                        f"a échoué. Vous pouvez réessayer."
+                    ),
+                    notification_type=NotificationType.PAYMENT,
+                    related_entity_type="payment",
+                    related_entity_id=str(payment.id),
+                    metadata={"url": f"/participant/paiements/{payment.id}"},
+                )
+        except Exception as e:
+            logger.warning("Notification failed on payment failure | err=%s", e)
+
         return payment
 
     # ------------------------------------------------------------------

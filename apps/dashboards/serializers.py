@@ -168,6 +168,7 @@ class ParticipantDashboardEventSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "title",
+            "cover_image",
             "start_at",
             "end_at",
             "format",

@@ -250,6 +250,8 @@ class EventDetailSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
     organizer = UserSerializer(read_only=True)
     available_slots = serializers.SerializerMethodField()
+    registered_count = serializers.SerializerMethodField()
+    ticket_types = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
@@ -276,6 +278,8 @@ class EventDetailSerializer(serializers.ModelSerializer):
             "category",
             "organizer",
             "available_slots",
+            "registered_count",
+            "ticket_types",
             "created_at",
             "updated_at",
         )
@@ -283,20 +287,28 @@ class EventDetailSerializer(serializers.ModelSerializer):
     def get_available_slots(self, obj: Event) -> int | None:
         return obj.calculate_availability()
 
+    def get_registered_count(self, obj: Event) -> int:
+        from apps.registrations.selectors import count_active_registrations
+        return count_active_registrations(obj)
 
+    def get_ticket_types(self, obj):
+        from apps.tickets.serializers import TicketTypePublicSerializer
+        active = obj.ticket_types.filter(is_active=True)
+        return TicketTypePublicSerializer(active, many=True, context=self.context).data   # ← .data OBLIGATOIRE
+
+    
 # ==================================================================
 # EVENT — Détail pour l'organisateur (avec access_url)
 # ==================================================================
 class EventOrganizerSerializer(serializers.ModelSerializer):
     """
     Serializer pour le détail d'un événement côté organisateur.
-
     Inclut access_url (le propriétaire a le droit de le voir).
-    Utilisé pour GET /api/events/{id}/ quand l'utilisateur est propriétaire.
     """
 
     category = CategorySerializer(read_only=True)
     available_slots = serializers.SerializerMethodField()
+    registered_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
@@ -317,17 +329,22 @@ class EventOrganizerSerializer(serializers.ModelSerializer):
             "city",
             "room",
             "online_platform",
-            "access_url",  # ← Inclus pour le propriétaire
+            "access_url",
             "status",
             "published_at",
             "category",
             "available_slots",
+            "registered_count",
             "created_at",
             "updated_at",
         )
 
     def get_available_slots(self, obj: Event) -> int | None:
         return obj.calculate_availability()
+
+    def get_registered_count(self, obj: Event) -> int:
+        from apps.registrations.selectors import count_active_registrations
+        return count_active_registrations(obj)
 
 
 # ==================================================================

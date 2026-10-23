@@ -294,6 +294,29 @@ class ParticipantDashboardAPITests(TestCase):
         response = self.client.get(reverse("dashboards:participant"))
 
         self.assertEqual(response.status_code, 403)
+
+    def test_dashboard_returns_absolute_cover_image_url_or_null(self):
+        self.online_event.cover_image = "events/covers/forum.jpg"
+        self.online_event.save(update_fields=["cover_image"])
+        self.client.force_authenticate(user=self.participant)
+
+        response = self.client.get(reverse("dashboards:participant"))
+
+        self.assertEqual(response.status_code, 200)
+        events = {
+            item["reference"]: item["event"]
+            for item in response.data["data"]["upcoming_registrations"]
+        }
+        self.assertEqual(
+            events["EVF-REG-2026-PART01"]["cover_image"],
+            "http://testserver/media/events/covers/forum.jpg",
+        )
+        self.assertIsNone(events["EVF-REG-2026-PEND01"]["cover_image"])
+
+    def test_anonymous_user_cannot_view_participant_dashboard(self):
+        response = self.client.get(reverse("dashboards:participant"))
+
+        self.assertEqual(response.status_code, 401)
 class AdminDashboardAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()

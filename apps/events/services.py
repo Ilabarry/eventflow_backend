@@ -17,6 +17,8 @@ Avantages :
 """
 
 import logging
+from django.db import transaction
+
 
 from django.db import transaction
 from django.utils import timezone
@@ -157,6 +159,34 @@ class EventService:
             event.id, event.organizer.email,
         )
 
+        # ⚠️ NOUVEAU : notifier tous les participants confirmés
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                from apps.registrations.constants import RegistrationStatus
+                from apps.registrations.models import Registration
+                from apps.accounts.models import User
+
+                participant_ids = Registration.objects.filter(
+                    event=event,
+                    status=RegistrationStatus.CONFIRMED,
+                ).values_list("participant_id", flat=True).distinct()
+
+                if participant_ids:
+                    users = User.objects.filter(id__in=participant_ids)
+                    NotificationService.notify_queryset(
+                        queryset=users,
+                        title="Nouvel événement publié",
+                        message=f"« {event.title} » est maintenant disponible.",
+                        notification_type=NotificationType.EVENT_PUBLICATION,
+                        related_entity_type="event",
+                        related_entity_id=str(event.id),
+                        metadata={"url": f"/events/{event.id}"},
+                    )
+        except Exception as e:
+            logger.warning("Notification failed on event publish | err=%s", e)
+
         return event
 
     # ------------------------------------------------------------------
@@ -187,6 +217,34 @@ class EventService:
             "Event cancelled | id=%s | organizer=%s",
             event.id, event.organizer.email,
         )
+
+        # ⚠️ NOUVEAU : notifier tous les participants confirmés
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                from apps.registrations.constants import RegistrationStatus
+                from apps.registrations.models import Registration
+                from apps.accounts.models import User
+
+                participant_ids = Registration.objects.filter(
+                    event=event,
+                    status=RegistrationStatus.CONFIRMED,
+                ).values_list("participant_id", flat=True).distinct()
+
+                if participant_ids:
+                    users = User.objects.filter(id__in=participant_ids)
+                    NotificationService.notify_queryset(
+                        queryset=users,
+                        title="Événement annulé",
+                        message=f"« {event.title} » a été annulé.",
+                        notification_type=NotificationType.EVENT_UPDATE,
+                        related_entity_type="event",
+                        related_entity_id=str(event.id),
+                        metadata={"url": f"/events/{event.id}"},
+                    )
+        except Exception as e:
+            logger.warning("Notification failed on event cancel | err=%s", e)
 
         return event
 

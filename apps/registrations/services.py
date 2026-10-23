@@ -8,6 +8,7 @@ simultanément.
 """
 
 import logging
+from django.db import transaction
 import secrets
 
 from django.db import IntegrityError, transaction
@@ -171,6 +172,26 @@ class RegistrationService:
             registration.reference, locked_event.id, participant.email, initial_status,
         )
 
+                # ⚠️ NOUVEAU : notifier l'organisateur
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=locked_event.organizer,
+                    title="Nouvelle inscription",
+                    message=(
+                        f"{participant.full_name} s'est inscrit à « {locked_event.title} ». "
+                        f"Référence : {registration.reference}."
+                    ),
+                    notification_type=NotificationType.REGISTRATION,
+                    related_entity_type="registration",
+                    related_entity_id=str(registration.id),
+                    metadata={"url": f"/organizer/participants/{registration.id}"},
+                )
+        except Exception as e:
+            logger.warning("Notification failed on registration creation | err=%s", e)
+
         return registration
 
     # ------------------------------------------------------------------
@@ -193,6 +214,26 @@ class RegistrationService:
             registration.reference, cancelled_by_user.email,
         )
 
+        # ⚠️ NOUVEAU : notifier le participant
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=registration.participant,
+                    title="Inscription annulée",
+                    message=(
+                        f"Votre inscription à « {registration.event.title} » a été annulée. "
+                        f"Référence : {registration.reference}."
+                    ),
+                    notification_type=NotificationType.REGISTRATION,
+                    related_entity_type="registration",
+                    related_entity_id=str(registration.id),
+                    metadata={"url": f"/participant/inscriptions/{registration.id}"},
+                )
+        except Exception as e:
+            logger.warning("Notification failed on registration cancel | err=%s", e)
+
         return registration
 
     # ------------------------------------------------------------------
@@ -201,46 +242,42 @@ class RegistrationService:
     @staticmethod
     @transaction.atomic
     def confirm_registration(*, registration: Registration, confirmed_by_user=None) -> Registration:
-        """
-        Confirme une inscription en PENDING.
-
-        ⚠️ GARANTIE D'INTÉGRITÉ :
-        Si un `ticket_type` est défini (événement payant avec ticket),
-        le ticket est généré DANS LA MÊME TRANSACTION que la confirmation.
-        Si la génération du ticket échoue, la confirmation est ROLLBACKÉE
-        (la Registration reste PENDING).
-
-        Cela garantit qu'il n'existe jamais de Registration CONFIRMED
-        sans Ticket correspondant.
-
-        Raises:
-            RegistrationNotAllowed: Si la transition n'est pas autorisée.
-            Exception: Toute erreur de génération de ticket remonte
-                et déclenche le rollback.
-        """
+        """Confirme une inscription en PENDING."""
         if not registration.can_transition_to(RegistrationStatus.CONFIRMED):
             raise RegistrationNotAllowed(
                 detail=f"Transition '{registration.status}' → 'CONFIRMED' non autorisée."
             )
 
-        # 1. Mettre à jour le statut de la Registration
         registration.status = RegistrationStatus.CONFIRMED
         registration.save(update_fields=["status", "updated_at"])
-
-        # 2. Si un ticket_type est défini, générer le ticket
-        #    DANS LA MÊME TRANSACTION (rollback automatique si échec)
-        if registration.ticket_type is not None:
-            from apps.tickets.services import TicketService
-            ticket = TicketService.issue_ticket_for_registration(registration)
-            logger.info(
-                "Ticket issued on registration confirm | ticket=%s | reg=%s",
-                ticket.reference, registration.reference,
-            )
 
         logger.info(
             "Registration confirmed | ref=%s | by=%s",
             registration.reference,
             confirmed_by_user.email if confirmed_by_user else "system",
         )
+
+        # ⚠️ NOUVEAU : notifier le participant
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=registration.participant,
+                    title="Inscription confirmée",
+                    message=(
+                        f"Votre inscription à « {registration.event.title} » est confirmée. "
+                        f"Référence : {registration.reference}."
+                    ),
+                    notification_type=NotificationType.REGISTRATION,
+                    related_entity_type="registration",
+                    related_entity_id=str(registration.id),
+                    metadata={"url": f"/participant/inscriptions/{registration.id}"},
+                )
+        except Exception as e:
+            logger.warning(
+                "Notification failed on registration confirm | reg=%s | err=%s",
+                registration.reference, e,
+            )
 
         return registration

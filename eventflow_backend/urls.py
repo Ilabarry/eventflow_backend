@@ -25,8 +25,9 @@ urlpatterns = [
     path("api/", include("apps.registrations.urls")),
     path("api/", include("apps.payments.urls")),
     path("api/", include("apps.attendance.urls")),
+    path("api/supervision/", include("apps.supervision.urls")),
     path("api/", include("apps.dashboards.urls")),
-    path("api/", include("apps.notifications.urls")),
+    path("api/notifications/", include("apps.notifications.urls")),
     path("api/", include("apps.tickets.urls")),
     path("api/", include("apps.certificates.urls")),
 ]
@@ -34,4 +35,8 @@ urlpatterns = [
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+
+# ✅ Servir les médias en développement
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 

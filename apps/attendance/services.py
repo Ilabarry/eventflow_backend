@@ -22,6 +22,7 @@ appels répétés reçoivent simplement un 409 « déjà présent ».
 """
 
 import logging
+from django.db import transaction
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -175,6 +176,27 @@ class AttendanceService:
             "Check-in success | registration=%s | event=%s | method=%s | by=%s",
             registration.id, event.id, method, performed_by.id,
         )
+
+        # ⚠️ NOUVEAU : notifier le participant
+        try:
+            with transaction.atomic():
+                from apps.notifications.constants import NotificationType
+                from apps.notifications.services import NotificationService
+                NotificationService.create_notification(
+                    user=registration.participant,
+                    title="Participation enregistrée",
+                    message=(
+                        f"Votre présence à « {registration.event.title} » "
+                        f"a bien été enregistrée."
+                    ),
+                    notification_type=NotificationType.ATTENDANCE,
+                    related_entity_type="attendance",
+                    related_entity_id=str(attendance.id),
+                    metadata={"url": f"/participant/presences/{attendance.id}"},
+                )
+        except Exception as e:
+            logger.warning("Notification failed on check-in | err=%s", e)
+
         return attendance
 
     # ------------------------------------------------------------------

@@ -69,15 +69,11 @@ def get_organizer_statistics(
 ) -> dict:
     """
     Statistiques limitées aux événements de l'organisateur.
-
-    Les tendances d'événements utilisent created_at ;
-    celles des inscriptions utilisent registered_at.
     """
     events = Event.objects.filter(organizer=user)
     registrations = Registration.objects.filter(event__organizer=user)
 
     if event_id:
-        # Le filtre reste toujours à l'intérieur du périmètre de l'organisateur.
         events = events.filter(id=event_id)
         registrations = registrations.filter(event_id=event_id)
 
@@ -117,22 +113,13 @@ def get_organizer_statistics(
             granularity=granularity,
         ),
         "events_by_status": list(
-            event_period
-            .values("status")
-            .annotate(count=Count("id"))
-            .order_by("status")
+            event_period.values("status").annotate(count=Count("id")).order_by("status")
         ),
         "events_by_format": list(
-            event_period
-            .values("format")
-            .annotate(count=Count("id"))
-            .order_by("format")
+            event_period.values("format").annotate(count=Count("id")).order_by("format")
         ),
         "registrations_by_status": list(
-            registration_period
-            .values("status")
-            .annotate(count=Count("id"))
-            .order_by("status")
+            registration_period.values("status").annotate(count=Count("id")).order_by("status")
         ),
     }
 
@@ -194,22 +181,13 @@ def get_admin_statistics(
             granularity=granularity,
         ),
         "events_by_status": list(
-            event_period
-            .values("status")
-            .annotate(count=Count("id"))
-            .order_by("status")
+            event_period.values("status").annotate(count=Count("id")).order_by("status")
         ),
         "events_by_format": list(
-            event_period
-            .values("format")
-            .annotate(count=Count("id"))
-            .order_by("format")
+            event_period.values("format").annotate(count=Count("id")).order_by("format")
         ),
         "registrations_by_status": list(
-            registration_period
-            .values("status")
-            .annotate(count=Count("id"))
-            .order_by("status")
+            registration_period.values("status").annotate(count=Count("id")).order_by("status")
         ),
         "users_by_role": list(users_by_role),
     }
