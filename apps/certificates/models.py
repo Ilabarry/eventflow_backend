@@ -1,3 +1,4 @@
+
 """
 Modèle Certificate pour EVENTFLOW.
 
@@ -24,26 +25,19 @@ from apps.registrations.models import Registration
 
 
 class Certificate(models.Model):
-    """
-    Certificat de participation lié à une inscription.
+    """Certificat de participation lié à une inscription."""
 
-    Relation :
-        Registration 1 ──── 0..1 Certificate
-    """
-
-    # ------------------------------------------------------------------
-    # Identifiant
-    # ------------------------------------------------------------------
+    # Identifiant unique du certificat
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
         editable=False,
         verbose_name=_("Identifiant"),
     )
-
     # ------------------------------------------------------------------
     # Relation
     # ------------------------------------------------------------------
+    # Relation : une inscription possède au maximum un certificat
     registration = models.OneToOneField(
         Registration,
         on_delete=models.CASCADE,
@@ -51,9 +45,7 @@ class Certificate(models.Model):
         verbose_name=_("Inscription"),
     )
 
-    # ------------------------------------------------------------------
     # Référence et code de vérification
-    # ------------------------------------------------------------------
     reference = models.CharField(
         max_length=REFERENCE_MAX_LENGTH,
         unique=True,
@@ -67,9 +59,7 @@ class Certificate(models.Model):
         verbose_name=_("Code de vérification"),
     )
 
-    # ------------------------------------------------------------------
-    # Statut
-    # ------------------------------------------------------------------
+    # Statut du certificat
     status = models.CharField(
         max_length=20,
         choices=CertificateStatus.choices,
@@ -78,9 +68,7 @@ class Certificate(models.Model):
         verbose_name=_("Statut"),
     )
 
-    # ------------------------------------------------------------------
-    # Fichier PDF
-    # ------------------------------------------------------------------
+    # Fichier PDF associé
     pdf_file = models.FileField(
         upload_to="certificates/%Y/",
         null=True,
@@ -88,9 +76,7 @@ class Certificate(models.Model):
         verbose_name=_("Fichier PDF"),
     )
 
-    # ------------------------------------------------------------------
     # Dates et traçabilité
-    # ------------------------------------------------------------------
     issued_at = models.DateTimeField(
         auto_now_add=True,
         db_index=True,
@@ -118,9 +104,6 @@ class Certificate(models.Model):
         verbose_name=_("Date de mise à jour"),
     )
 
-    # ------------------------------------------------------------------
-    # Méta
-    # ------------------------------------------------------------------
     class Meta:
         verbose_name = _("Certificat")
         verbose_name_plural = _("Certificats")
@@ -135,9 +118,6 @@ class Certificate(models.Model):
     def __str__(self):
         return f"{self.reference} — {self.registration.participant.full_name}"
 
-    # ------------------------------------------------------------------
-    # Propriétés
-    # ------------------------------------------------------------------
     @property
     def is_pending(self) -> bool:
         return self.status == CertificateStatus.PENDING
@@ -152,12 +132,10 @@ class Certificate(models.Model):
 
     @property
     def is_valid(self) -> bool:
-        """Un certificat est valide s'il est ISSUED (pas révoqué)."""
+        """Un certificat est valide lorsque son statut est ISSUED."""
         return self.status == CertificateStatus.ISSUED
 
-    # ------------------------------------------------------------------
-    # Méthodes métier
-    # ------------------------------------------------------------------
     def can_transition_to(self, new_status: str) -> bool:
+        """Vérifie si le changement de statut est autorisé."""
         allowed = ALLOWED_STATUS_TRANSITIONS.get(self.status, [])
         return new_status in allowed
