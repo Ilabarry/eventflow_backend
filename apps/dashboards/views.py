@@ -3,7 +3,7 @@ from django.shortcuts import render
 # Create your views here.
 """Vues API du module dashboards."""
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
@@ -23,8 +23,12 @@ from common.permissions.base import IsAdmin
 from apps.dashboards.serializers import (
     AdminStatisticsSerializer,
     OrganizerStatisticsSerializer,
+    SupervisionDashboardSerializer,
 )
-from apps.dashboards.services import DashboardStatisticsService
+from apps.dashboards.services import (
+    DashboardStatisticsService,
+    SupervisionDashboardService
+)
 from apps.dashboards.validators import (
     AdminStatisticsQuerySerializer,
     OrganizerStatisticsQuerySerializer,
@@ -81,8 +85,9 @@ class ParticipantDashboardView(APIView):
             data=serializer.data,
             message="Dashboard participant récupéré.",
         )
+    
 class AdminDashboardView(APIView):
-    """Dashboard global réservé aux administrateurs."""
+    """Dashboard global réservé aux administrateurs (format historique)."""
 
     permission_classes = [IsAuthenticated, IsAdmin]
 
@@ -98,11 +103,60 @@ class AdminDashboardView(APIView):
     def get(self, request):
         dashboard_data = AdminDashboardService.get_dashboard()
         serializer = AdminDashboardSerializer(instance=dashboard_data)
+        return APIResponse.success(
+            data=serializer.data,
+            message="Dashboard administrateur récupéré.",
+        )
+
+
+class AdminSupervisionDashboardView(APIView):
+    """
+    Dashboard de supervision réservé aux administrateurs.
+
+    GET /api/admin/supervision/?days=30
+
+    Retourne :
+    - KPIs avec tendance
+    - Éléments à traiter
+    - Activité journalière
+    - Événements récents
+    """
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    @extend_schema(
+        summary="Dashboard de supervision administrateur",
+        description=(
+            "Retourne les KPIs avec tendance, les éléments à traiter, "
+            "l'activité journalière et les événements récents."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="days",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Nombre de jours d'historique (1 à 365).",
+                default=30,
+            )
+        ],
+        responses={200: SupervisionDashboardSerializer},
+        tags=["Dashboards"],
+    )
+    def get(self, request):
+        try:
+            days = int(request.query_params.get("days", 30))
+        except (TypeError, ValueError):
+            days = 30
+        days = max(1, min(days, 365))
+
+        dashboard_data = SupervisionDashboardService.get_dashboard(days=days)
+        serializer = SupervisionDashboardSerializer(instance=dashboard_data)
 
         return APIResponse.success(
             data=serializer.data,
             message="Dashboard administrateur récupéré.",
         )
+
 class OrganizerStatisticsView(APIView):
     """Statistiques filtrees de l'organisateur connecte."""
 

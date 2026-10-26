@@ -5,6 +5,7 @@ from django.urls import path
 from apps.dashboards.views import (
     AdminDashboardView,
     AdminStatisticsView,
+    AdminSupervisionDashboardView,
     OrganizerDashboardView,
     OrganizerStatisticsView,
     ParticipantDashboardView,
@@ -18,4 +19,5 @@ urlpatterns = [
     path("dashboard/admin/", AdminDashboardView.as_view(), name="admin"),
     path("dashboard/organizer/statistics/", OrganizerStatisticsView.as_view(), name="organizer-statistics"),
     path("dashboard/admin/statistics/", AdminStatisticsView.as_view(), name="admin-statistics"),
+    path("admin/supervision/", AdminSupervisionDashboardView.as_view(), name="admin-supervision-dashboard",),
 ]
