@@ -7,6 +7,21 @@ from django.db import transaction
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
+
+from django.core import signing
+from django.conf import settings
+from django.core.mail import send_mail
+from django.urls import reverse
+from django.utils import timezone
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Durée de validité du lien de vérification (en secondes) : 24h
+EMAIL_VERIFICATION_MAX_AGE = 60 * 60 * 24
+
 from apps.accounts.constants import (
     DEFAULT_ROLE_ON_SIGNUP,
     ROLE_DESCRIPTIONS,
@@ -72,11 +87,18 @@ class AuthService:
         """
         Authentifie un utilisateur par email + mot de passe.
 
-        Retourne l'utilisateur si les identifiants sont valides et
-        que le compte est actif, sinon None.
+        ⚠️ On n'utilise PAS authenticate() seul car il retourne None
+        pour les comptes inactifs, ce qui masque la vraie raison
+        de l'échec (mot de passe vs compte désactivé).
         """
-        # Django utilise USERNAME_FIELD ('email') pour l'authentification
-        user = authenticate(request=None, username=email, password=password)
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return None
+
+        if not user.check_password(password):
+            return None
+
         return user
 
     @staticmethod
@@ -95,6 +117,100 @@ class AuthService:
             "access": str(refresh.access_token),
             "refresh": str(refresh),
         }
+
+    # ------------------------------------------------------------------
+    # VÉRIFICATION EMAIL
+    # ------------------------------------------------------------------
+    @staticmethod
+    def generate_email_verification_token(user) -> str:
+        """
+        Génère un token signé pour la vérification d'email.
+        Le token contient l'ID de l'utilisateur et expire après 24h.
+        Aucun stockage en base n'est nécessaire.
+        """
+        return signing.dumps(
+            {"user_id": str(user.id)},
+            salt="email-verification",
+        )
+
+    @staticmethod
+    def verify_email_token(token: str) -> User:
+        """
+        Vérifie un token et retourne l'utilisateur correspondant.
+        Lève une exception si le token est invalide ou expiré.
+        """
+        try:
+            data = signing.loads(
+                token,
+                salt="email-verification",
+                max_age=EMAIL_VERIFICATION_MAX_AGE,
+            )
+        except signing.SignatureExpired:
+            raise ValueError("Le lien de vérification a expiré. Demandez-en un nouveau.")
+        except signing.BadSignature:
+            raise ValueError("Le lien de vérification est invalide.")
+
+        try:
+            user = User.objects.get(pk=data["user_id"])
+        except User.DoesNotExist:
+            raise ValueError("Utilisateur introuvable.")
+
+        return user
+
+    @staticmethod
+    def send_verification_email(user) -> None:
+        """
+        Envoie l'email de vérification à l'utilisateur.
+        Utilise un template HTML professionnel avec fallback texte.
+        """
+        token = AuthService.generate_email_verification_token(user)
+        frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:4200")
+        verification_url = f"{frontend_url}/verify-email?token={token}"
+
+        context = {
+            "first_name": user.first_name,
+            "verification_url": verification_url,
+            "current_year": timezone.now().year,
+        }
+
+        subject = "Vérifiez votre adresse email — EVENTFLOW"
+
+        # Version texte (fallback)
+        text_body = render_to_string("emails/verify_email.txt", context)
+
+        # Version HTML (design)
+        html_body = render_to_string("emails/verify_email.html", context)
+
+        msg = EmailMultiAlternatives(
+            subject=subject,
+            body=text_body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[user.email],
+        )
+        msg.attach_alternative(html_body, "text/html")
+        msg.send()
+
+        logger.info(
+            "Verification email sent | user=%s | email=%s",
+            user.id, user.email,
+        )
+
+    @staticmethod
+    def confirm_email_verification(token: str) -> User:
+        """
+        Vérifie le token et active le compte.
+        Idempotent : si déjà vérifié, retourne l'utilisateur sans erreur.
+        """
+        user = AuthService.verify_email_token(token)
+
+        if user.is_email_verified:
+            return user  # Déjà vérifié, on ne fait rien
+
+        user.is_email_verified = True
+        user.is_active = True   # Activer le compte
+        user.save(update_fields=["is_email_verified", "is_active"])
+        logger.info("Email verified | user=%s", user.id)
+        return user
 
     # ------------------------------------------------------------------
     # Refresh
@@ -141,3 +257,5 @@ class AuthService:
             token.blacklist()
         except TokenError:
             raise
+
+

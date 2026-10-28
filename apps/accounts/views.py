@@ -37,13 +37,6 @@ logger = logging.getLogger(__name__)
 # INSCRIPTION
 # ==================================================================
 class RegisterView(APIView):
-    """
-    POST /api/auth/register/
-
-    Crée un nouvel utilisateur. Le rôle est choisi par l'utilisateur
-    ('participant' ou 'organisateur').
-    """
-
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -56,9 +49,87 @@ class RegisterView(APIView):
             )
 
         user = serializer.save()
+        # ✅ NOUVEAU : envoyer l'email de vérification
+        try:
+            AuthService.send_verification_email(user)
+        except Exception:
+            logger.exception("Failed to send verification email | user=%s", user.id)
+            # On ne bloque pas l'inscription, l'utilisateur pourra demander un renvoi
+
         return APIResponse.created(
             data=UserSerializer(user).data,
-            message="Inscription réussie. Vous pouvez maintenant vous connecter.",
+            message="Inscription réussie. Vérifiez votre email pour activer votre compte.",
+        )
+
+
+# ==================================================================
+# verification du mail
+# ==================================================================
+class VerifyEmailView(APIView):
+    """
+    POST /api/auth/verify-email/
+    Body : { "token": "..." }
+    Vérifie le token et active le compte.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        token = request.data.get("token", "").strip()
+        if not token:
+            return APIResponse.error(
+                message="Token manquant.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = AuthService.confirm_email_verification(token)
+        except ValueError as e:
+            return APIResponse.error(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return APIResponse.success(
+            data=UserSerializer(user).data,
+            message="Email vérifié avec succès. Vous pouvez maintenant vous connecter.",
+        )
+
+
+class ResendVerificationEmailView(APIView):
+    """
+    POST /api/auth/resend-verification/
+    Body : { "email": "..." }
+    Renvoie l'email de vérification si le compte existe et n'est pas vérifié.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email", "").lower().strip()
+        if not email:
+            return APIResponse.error(
+                message="Email manquant.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = User.objects.get(email=email, is_email_verified=False)
+        except User.DoesNotExist:
+            # Message générique pour ne pas révéler l'existence du compte
+            return APIResponse.success(
+                message="Si un compte non vérifié existe avec cet email, un nouveau lien a été envoyé.",
+            )
+
+        try:
+            AuthService.send_verification_email(user)
+        except Exception:
+            logger.exception("Failed to resend verification email | user=%s", user.id)
+            return APIResponse.error(
+                message="Impossible d'envoyer l'email. Réessayez plus tard.",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return APIResponse.success(
+            message="Un nouveau lien de vérification a été envoyé.",
         )
 
 

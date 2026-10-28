@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vérifiez votre email — EVENTFLOW</title>
+  <!--[if mso]>
+  <style type="text/css">
+    body, table, td { font-family: Arial, Helvetica, sans-serif !important; }
+  </style>
+  <![endif]-->
+</head>
+<body style="margin:0; padding:0; background-color:#F5F5F7; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+
+  <!-- Préheader (aperçu dans la boîte de réception) -->
+  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all;">
+    Confirmez votre adresse email pour activer votre compte EVENTFLOW.
+  </div>
+
+  <!-- Wrapper -->
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#F5F5F7; padding:32px 16px;">
+    <tr>
+      <td align="center">
+
+        <!-- Container principal -->
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width:560px; background-color:#FFFFFF; border-radius:16px; overflow:hidden; box-shadow:0 4px 24px rgba(0,0,0,0.06);">
+
+          <!-- Header avec gradient -->
+          <tr>
+            <td style="background:linear-gradient(135deg, #8B7CF6 0%, #22C7D6 100%); background-color:#8B7CF6; padding:40px 32px; text-align:center;">
+              <!-- Logo (texte stylisé) -->
+              <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:28px; font-weight:800; letter-spacing:-0.02em; color:#FFFFFF; margin:0;">
+                EVENT<span style="color:#FFFFFF; opacity:0.85;">FLOW</span>
+              </div>
+              <div style="height:2px; width:60px; background:rgba(255,255,255,0.4); margin:16px auto 0; border-radius:2px;"></div>
+            </header>
+          </tr>
+
+          <!-- Contenu -->
+          <tr>
+            <td style="padding:48px 40px 32px;">
+              <h1 style="margin:0 0 8px; font-size:24px; font-weight:700; color:#1A1A1A; letter-spacing:-0.01em;">
+                Bienvenue {{ first_name }} 👋
+              </h1>
+              <p style="margin:0 0 24px; font-size:16px; line-height:1.6; color:#4A4A4A;">
+                Merci de vous être inscrit sur <strong style="color:#8B7CF6;">EVENTFLOW</strong>.
+                Il ne reste qu'une étape pour activer votre compte.
+              </p>
+
+              <p style="margin:0 0 24px; font-size:16px; line-height:1.6; color:#4A4A4A;">
+                Cliquez sur le bouton ci-dessous pour confirmer votre adresse email :
+              </p>
+
+              <!-- Bouton CTA -->
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin:32px auto;">
+                <tr>
+                  <td align="center" style="border-radius:999px; background:linear-gradient(135deg, #8B7CF6 0%, #22C7D6 100%); background-color:#8B7CF6;">
+                    <a href="{{ verification_url }}" target="_blank" style="display:inline-block; padding:16px 40px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:16px; font-weight:600; color:#FFFFFF; text-decoration:none; border-radius:999px; letter-spacing:0.01em;">
+                      ✓ Vérifier mon email
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Fallback lien -->
+              <p style="margin:32px 0 8px; font-size:13px; line-height:1.5; color:#6B6B6B; text-align:center;">
+                Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :
+              </p>
+              <p style="margin:0; padding:12px 16px; background:#F8F8FA; border-radius:8px; font-size:12px; color:#8B7CF6; word-break:break-all; font-family:'Courier New', monospace; line-height:1.5; text-align:center;">
+                {{ verification_url }}
+              </p>
+
+              <!-- Info expiration -->
+              <div style="margin-top:32px; padding:16px 20px; background:#F0EEFE; border-left:3px solid #8B7CF6; border-radius:6px;">
+                <p style="margin:0; font-size:13px; line-height:1.5; color:#4A4A4A;">
+                  ⏱ Ce lien expirera dans <strong>24 heures</strong>.
+                </p>
+              </div>
+
+              <p style="margin:24px 0 0; font-size:14px; line-height:1.6; color:#6B6B6B;">
+                Si vous n'êtes pas à l'origine de cette inscription, vous pouvez ignorer cet email en toute sécurité.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:24px 40px 32px; border-top:1px solid #EFEFF2; text-align:center;">
+              <p style="margin:0 0 8px; font-size:13px; color:#9B9BA0;">
+                L'équipe <strong style="color:#8B7CF6;">EVENTFLOW</strong>
+              </p>
+              <p style="margin:0; font-size:12px; color:#B5B5BA;">
+                © {{ current_year }} EVENTFLOW · Tous droits réservés
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Mention légale -->
+        <p style="margin:16px 0 0; font-size:11px; color:#B5B5BA; text-align:center;">
+          Cet email a été envoyé automatiquement. Merci de ne pas y répondre.
+        </p>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

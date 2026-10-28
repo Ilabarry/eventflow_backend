@@ -204,6 +204,14 @@ class User(AbstractUser):
     )
 
     # ------------------------------------------------------------------
+    # verification du mail
+    # ------------------------------------------------------------------
+    is_email_verified = models.BooleanField(
+        default=False,
+        verbose_name="Email vérifié",
+    )
+
+    # ------------------------------------------------------------------
     # Dates
     # ------------------------------------------------------------------
     created_at = models.DateTimeField(

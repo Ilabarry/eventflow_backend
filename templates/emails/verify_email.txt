@@ -1,0 +1,13 @@
+Bonjour {{ first_name }},
+
+Merci de vous être inscrit sur EVENTFLOW.
+
+Pour activer votre compte, cliquez sur le lien ci-dessous :
+{{ verification_url }}
+
+Ce lien expirera dans 24 heures.
+
+Si vous n'êtes pas à l'origine de cette inscription, ignorez cet email.
+
+L'équipe EVENTFLOW
+© {{ current_year }} EVENTFLOW · Tous droits réservés

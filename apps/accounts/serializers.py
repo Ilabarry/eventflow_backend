@@ -233,33 +233,19 @@ class ChangePasswordSerializer(serializers.Serializer):
 # SERIALIZER : Connexion
 # ==================================================================
 class LoginSerializer(serializers.Serializer):
-    """
-    Serializer pour la connexion.
-
-    L'utilisateur fournit son email et son mot de passe.
-    Le serializer valide puis authentifie via le service.
-    """
-
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs: dict) -> dict:
-        """
-        Authentifie l'utilisateur.
-
-        On ne fait PAS de validate_email séparé pour éviter
-        l'énumération de comptes (un message générique est renvoyé
-        si l'email OU le mot de passe est incorrect).
-        """
         email = attrs.get("email", "").lower()
         password = attrs.get("password", "")
 
         from apps.accounts.services import AuthService
 
+        # ✅ Appeler la méthode de AuthService
         user = AuthService.authenticate_user(email=email, password=password)
 
         if user is None:
-            # Message générique : ne pas révéler si l'email existe ou non
             raise serializers.ValidationError(
                 {"non_field_errors": ["Email ou mot de passe incorrect."]}
             )
@@ -269,8 +255,17 @@ class LoginSerializer(serializers.Serializer):
                 {"non_field_errors": ["Ce compte est désactivé."]}
             )
 
+        if not user.is_email_verified:
+            raise serializers.ValidationError(
+                {"non_field_errors": [
+                    "Votre adresse email n'est pas encore vérifiée. "
+                    "Consultez votre boîte de réception et cliquez sur le lien d'activation."
+                ]}
+            )
+
         attrs["user"] = user
         return attrs
+    
 
 
 # ==================================================================
