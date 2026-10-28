@@ -1,0 +1,14 @@
+Bonjour {{ first_name }},
+
+Nous avons le plaisir de vous informer que votre compte EVENTFLOW a été réactivé.
+
+Motif : {{ reason|default:"Non précisé" }}
+
+Vous pouvez dès à présent vous reconnecter à votre espace organisateur.
+
+Administrateur à l'origine de la réactivation :
+    {{ actor_name }} — {{ actor_email }}
+
+Cordialement,
+L'équipe EVENTFLOW
+© {{ current_year }} EVENTFLOW

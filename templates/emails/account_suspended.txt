@@ -1,0 +1,14 @@
+Bonjour {{ first_name }},
+
+Nous vous informons que votre compte EVENTFLOW a été suspendu.
+
+Motif : {{ reason|default:"Non précisé" }}
+
+Cette décision a été prise par un administrateur :
+    {{ actor_name }} — {{ actor_email }}
+
+Pour toute question ou pour demander un réexamen, répondez directement à cet e-mail.
+
+Cordialement,
+L'équipe EVENTFLOW
+© {{ current_year }} EVENTFLOW

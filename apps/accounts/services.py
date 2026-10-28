@@ -19,7 +19,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Durée de validité du lien de vérification (en secondes) : 24h
+# Durée de validité du lien de vérification: 24h
 EMAIL_VERIFICATION_MAX_AGE = 60 * 60 * 24
 
 from apps.accounts.constants import (

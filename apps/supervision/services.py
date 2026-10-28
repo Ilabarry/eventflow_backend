@@ -20,6 +20,11 @@ import uuid
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
+
+# ... le reste des imports existants
 
 from apps.accounts.models import User
 from apps.events.models import Category, Event
@@ -254,6 +259,97 @@ class UserSupervisionService:
         except Exception as e:
             logger.warning("Notification failed on user suspend | err=%s", e)
 
+    # ------------------------------------------------------------------
+    # Helper : envoi d'e-mail à l'organisateur
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _send_account_status_email(
+        *,
+        target,
+        actor,
+        action: str,       # "suspend" | "activate"
+        reason: str,
+    ) -> None:
+        """
+        Envoie un e-mail à l'organisateur concerné, à l'initiative de
+        l'administrateur (`actor`). L'adresse de l'admin est utilisée
+        en `reply_to`, et l'en-tête `From` reste `DEFAULT_FROM_EMAIL`
+        (recommandation anti-spoofing).
+        """
+        if not target.email:
+            logger.warning("No email to notify | user=%s", getattr(target, "pk", None))
+            return
+
+        actor_email = getattr(actor, "email", None) or settings.DEFAULT_FROM_EMAIL
+        actor_name = ""
+        if actor is not None:
+            actor_name = (
+                f"{getattr(actor, 'first_name', '')} {getattr(actor, 'last_name', '')}"
+            ).strip()
+
+        is_suspend = action == "suspend"
+        subject = (
+            "Votre compte EVENTFLOW a été suspendu"
+            if is_suspend
+            else "Votre compte EVENTFLOW a été réactivé"
+        )
+
+        context = {
+            "first_name": target.first_name or target.email,
+            "action_label": "suspendu" if is_suspend else "réactivé",
+            "reason": reason or "",
+            "actor_email": actor_email,
+            "actor_name": actor_name or actor_email,
+            "current_year": timezone.now().year,
+        }
+
+        # Templates HTML + TXT (à créer si absents, un fallback texte suffit)
+        try:
+            text_body = render_to_string(
+                "emails/account_suspended.txt" if is_suspend else "emails/account_activated.txt",
+                context,
+            )
+            html_body = render_to_string(
+                "emails/account_suspended.html" if is_suspend else "emails/account_activated.html",
+                context,
+            )
+        except Exception:
+            # Si les templates n'existent pas encore, on utilise un texte simple.
+            text_body = (
+                f"Bonjour {context['first_name']},\n\n"
+                f"Votre compte EVENTFLOW a été {context['action_label']}.\n"
+                f"Motif : {context['reason'] or 'Non précisé'}\n\n"
+                f"Contact : {actor_email}\n\n"
+                f"— EVENTFLOW"
+            )
+            html_body = None
+
+        msg = EmailMultiAlternatives(
+            subject=subject,
+            body=text_body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[target.email],
+            reply_to=[actor_email],
+            headers={
+                "X-Eventflow-Action": action,
+                "X-Eventflow-Admin": actor_email,
+            },
+        )
+        if html_body:
+            msg.attach_alternative(html_body, "text/html")
+
+        try:
+            msg.send(fail_silently=False)
+            logger.info(
+                "Account status email sent | action=%s | user=%s | admin=%s",
+                action, target.pk, actor_email,
+            )
+        except Exception as exc:  # ne jamais faire échouer l'action métier
+            logger.warning(
+                "Account status email failed | action=%s | user=%s | err=%s",
+                action, target.pk, exc,
+            )
+
     # --- actions ---------------------------------------------------------
     @classmethod
     def suspend(cls, *, actor, user_id, reason: str, request=None) -> User:
@@ -281,6 +377,14 @@ class UserSupervisionService:
                     reason=reason,
                     metadata={"target_email": target.email, "revoked_refresh_tokens": revoked},
                     request=request,
+                )
+
+                # ✅ Notification par e-mail de l'organisateur concerné
+                cls._send_account_status_email(
+                    target=target,
+                    actor=actor,
+                    action="suspend",
+                    reason=reason,
                 )
 
                 # ⚠️ NOUVEAU : notifier l'utilisateur réactivé
@@ -334,6 +438,14 @@ class UserSupervisionService:
                     reason=reason,
                     metadata={"target_email": target.email},
                     request=request,
+                )
+
+                # ✅ Notification par e-mail de l'organisateur concerné
+                cls._send_account_status_email(
+                    target=target,
+                    actor=actor,
+                    action="activate",
+                    reason=reason,
                 )
 
                 # ⚠️ NOUVEAU : notifier l'utilisateur réactivé
