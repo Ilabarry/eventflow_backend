@@ -116,7 +116,8 @@ def paginated_response(request, view, queryset, serializer_class, message):
     """Pagination standard EVENTFLOW (page_size max 50)."""
     paginator = StandardPagination()
     page = paginator.paginate_queryset(queryset, request, view=view)
-    serializer = serializer_class(page, many=True)
+    # La requête permet aux champs image de renvoyer une URL complète.
+    serializer = serializer_class(page, many=True, context={"request": request})
     return APIResponse.success(
         data=paginator.get_paginated_response(serializer.data).data,
         message=message,
@@ -417,7 +418,10 @@ class SupervisionEventDetailView(SupervisionAPIView):
         event = get_supervision_event_detail(pk)
         if event is None:
             return not_found("Événement introuvable.")
-        return APIResponse.success(data=SupervisionEventDetailSerializer(event).data, message="Fiche événement.")
+        return APIResponse.success(
+            data=SupervisionEventDetailSerializer(event, context={"request": request}).data,
+            message="Fiche événement.",
+        )
 
 
 class SupervisionEventCancelView(SupervisionAPIView):
@@ -452,7 +456,9 @@ class SupervisionEventCancelView(SupervisionAPIView):
             request=request,
         )
         return APIResponse.success(
-            data=SupervisionEventDetailSerializer(get_supervision_event_detail(pk)).data,
+            data=SupervisionEventDetailSerializer(
+                get_supervision_event_detail(pk), context={"request": request},
+            ).data,
             message="Événement annulé.",
         )
 

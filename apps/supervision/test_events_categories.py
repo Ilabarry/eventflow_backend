@@ -71,6 +71,18 @@ class SupervisionEventApiTests(SupervisionUsersMixin, APITestCase):
         self.assertEqual(row["attendances_present"], 1)
         self.assertEqual(row["organizer_email"], "orga@test.com")
 
+    def test_cover_image_is_an_absolute_url_or_null(self):
+        self.event.cover_image = "events/covers/forum.jpg"
+        self.event.save(update_fields=["cover_image"])
+        expected = "http://testserver/media/events/covers/forum.jpg"
+
+        rows = {r["id"]: r for r in self.client.get(EVENTS_URL).json()["data"]["results"]}
+        self.assertEqual(rows[str(self.event.id)]["cover_image"], expected)
+        self.assertIsNone(rows[str(self.draft.id)]["cover_image"])
+
+        detail = self.client.get(f"{EVENTS_URL}{self.event.id}/").json()["data"]
+        self.assertEqual(detail["cover_image"], expected)
+
     def test_access_url_is_never_exposed(self):
         row = self.client.get(EVENTS_URL).json()["data"]["results"][0]
         self.assertNotIn("access_url", row)
