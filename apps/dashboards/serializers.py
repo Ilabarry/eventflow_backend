@@ -436,3 +436,71 @@ class AdminStatisticsSerializer(serializers.Serializer):
         allow_null=True,
         read_only=True,
     )
+
+# ==================================================================
+# SERIALIZERS : Dashboard admin « supervision »
+# (format consommé par le frontend Angular /admin/dashboard)
+# ==================================================================
+
+class SupervisionKpiSerializer(serializers.Serializer):
+    """KPI avec valeur et tendance par rapport à la période précédente."""
+    value = serializers.IntegerField(read_only=True)
+    trend = serializers.FloatField(allow_null=True, read_only=True)
+
+
+class SupervisionKpisSerializer(serializers.Serializer):
+    """Les 5 KPIs principaux du dashboard admin."""
+    users = SupervisionKpiSerializer(read_only=True)
+    organizers = SupervisionKpiSerializer(read_only=True)
+    events = SupervisionKpiSerializer(read_only=True)
+    published_events = SupervisionKpiSerializer(read_only=True)
+    registrations = SupervisionKpiSerializer(read_only=True)
+
+
+class SupervisionToReviewSerializer(serializers.Serializer):
+    """Éléments en attente de décision de l'administrateur."""
+    pending_organizers = serializers.IntegerField(read_only=True)
+    pending_events = serializers.IntegerField(read_only=True)
+    reports = serializers.IntegerField(read_only=True)
+    suspended_accounts = serializers.IntegerField(read_only=True)
+
+
+class SupervisionActivityPointSerializer(serializers.Serializer):
+    """Point journalier d'activité (pour le graphique)."""
+    date = serializers.CharField(read_only=True)  # AAAA-MM-JJ
+    registrations = serializers.IntegerField(read_only=True)
+    events = serializers.IntegerField(read_only=True)
+    users = serializers.IntegerField(read_only=True)
+
+
+class SupervisionRecentEventSerializer(serializers.ModelSerializer):
+    """Événement récent avec nom de l'organisateur et ville."""
+    organizer_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Event
+        fields = (
+            "id",
+            "title",
+            "status",
+            "organizer_name",
+            "city",
+            "start_at",
+        )
+        read_only_fields = fields
+
+    def get_organizer_name(self, event: Event) -> str:
+        organizer = event.organizer
+        return f"{organizer.first_name} {organizer.last_name}".strip()
+
+
+class SupervisionDashboardSerializer(serializers.Serializer):
+    """
+    Réponse du dashboard de supervision admin.
+    Aligné exactement sur AdminDashboardDto côté Angular.
+    """
+    generated_at = serializers.CharField(read_only=True)
+    kpis = SupervisionKpisSerializer(read_only=True)
+    to_review = SupervisionToReviewSerializer(read_only=True)
+    activity = SupervisionActivityPointSerializer(many=True, read_only=True)
+    recent_events = SupervisionRecentEventSerializer(many=True, read_only=True)

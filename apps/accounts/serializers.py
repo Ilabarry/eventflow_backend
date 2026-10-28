@@ -137,6 +137,8 @@ class UserSerializer(serializers.ModelSerializer):
             "profile_picture",
             "roles",
             "is_active",
+            "is_staff",
+            "is_superuser",
             "created_at",
             "updated_at",
         )

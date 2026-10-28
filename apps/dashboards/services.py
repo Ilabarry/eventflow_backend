@@ -215,3 +215,138 @@ class DashboardStatisticsService:
             "payment_statistics_available": False,
             "financial_statistics": None,
         }
+
+
+# ==================================================================
+# SERVICE : Dashboard admin « supervision »
+# ==================================================================
+
+class SupervisionDashboardService:
+    """
+    Compose les données du dashboard de supervision admin :
+    KPIs avec tendance, éléments à traiter, activité journalière
+    et événements récents.
+    """
+
+    @staticmethod
+    def _trend(current: int, previous: int) -> float | None:
+        """Calcule la tendance en % entre deux périodes."""
+        if previous == 0:
+            return None if current == 0 else 100.0
+        return round(((current - previous) / previous) * 100, 1)
+
+    @staticmethod
+    def get_dashboard(*, days: int = 30) -> dict:
+        from django.utils import timezone
+        from django.db.models import Count
+
+        from apps.accounts.models import User
+        from apps.events.models import Event
+        from apps.events.constants import EventStatus
+        from apps.registrations.models import Registration
+
+        now = timezone.now()
+        today = timezone.localdate()
+
+        # ── Bornes des périodes (courante et précédente)
+        start_current = now - timedelta(days=days)
+        start_previous = start_current - timedelta(days=days)
+
+        # ── KPIs
+        def count_users(start, end, role=None):
+            qs = User.objects.filter(created_at__gte=start, created_at__lt=end)
+            if role:
+                qs = qs.filter(roles__name=role).distinct()
+            return qs.count()
+
+        def count_events(start, end, status=None):
+            qs = Event.objects.filter(created_at__gte=start, created_at__lt=end)
+            if status:
+                qs = qs.filter(status=status)
+            return qs.count()
+
+        def count_registrations(start, end):
+            return Registration.objects.filter(
+                registered_at__gte=start, registered_at__lt=end
+            ).count()
+
+        users_cur = count_users(start_current, now)
+        users_prev = count_users(start_previous, start_current)
+
+        organizers_cur = count_users(start_current, now, role="organisateur")
+        organizers_prev = count_users(start_previous, start_current, role="organisateur")
+
+        events_cur = count_events(start_current, now)
+        events_prev = count_events(start_previous, start_current)
+
+        published_cur = count_events(start_current, now, status=EventStatus.PUBLISHED)
+        published_prev = count_events(start_previous, start_current, status=EventStatus.PUBLISHED)
+
+        registrations_cur = count_registrations(start_current, now)
+        registrations_prev = count_registrations(start_previous, start_current)
+
+        # ── À traiter
+        pending_organizers = User.objects.filter(
+            roles__name="organisateur",
+            is_active=False,
+        ).distinct().count()
+
+        pending_events = Event.objects.filter(
+            status=EventStatus.DRAFT,
+        ).count()  # ajustez selon votre logique (DRAFT ≈ en attente de modération)
+
+        suspended_accounts = User.objects.filter(is_active=False).count()
+        reports = 0  # à brancher quand un modèle Report existera
+
+        # ── Activité journalière
+        activity = []
+        for i in range(days):
+            day = today - timedelta(days=days - 1 - i)
+            day_start = timezone.make_aware(datetime.combine(day, time.min))
+            day_end = day_start + timedelta(days=1)
+            activity.append({
+                "date": day.isoformat(),
+                "registrations": count_registrations(day_start, day_end),
+                "events": count_events(day_start, day_end),
+                "users": count_users(day_start, day_end),
+            })
+
+        # ── Événements récents (5 derniers créés)
+        recent_events = list(
+            Event.objects.select_related("organizer")
+            .order_by("-created_at")[:5]
+        )
+
+        return {
+            "generated_at": now.isoformat(),
+            "kpis": {
+                "users": {
+                    "value": users_cur,
+                    "trend": SupervisionDashboardService._trend(users_cur, users_prev),
+                },
+                "organizers": {
+                    "value": organizers_cur,
+                    "trend": SupervisionDashboardService._trend(organizers_cur, organizers_prev),
+                },
+                "events": {
+                    "value": events_cur,
+                    "trend": SupervisionDashboardService._trend(events_cur, events_prev),
+                },
+                "published_events": {
+                    "value": published_cur,
+                    "trend": SupervisionDashboardService._trend(published_cur, published_prev),
+                },
+                "registrations": {
+                    "value": registrations_cur,
+                    "trend": SupervisionDashboardService._trend(registrations_cur, registrations_prev),
+                },
+            },
+            "to_review": {
+                "pending_organizers": pending_organizers,
+                "pending_events": pending_events,
+                "reports": reports,
+                "suspended_accounts": suspended_accounts,
+            },
+            "activity": activity,
+            "recent_events": recent_events,
+        }

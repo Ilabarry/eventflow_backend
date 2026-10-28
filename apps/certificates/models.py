@@ -40,6 +40,7 @@ class Certificate(models.Model):
     # ------------------------------------------------------------------
     # Relation
     # ------------------------------------------------------------------
+    # Relation : une inscription possède au maximum un certificat
     registration = models.OneToOneField(
         Registration,
         on_delete=models.CASCADE,
@@ -141,4 +142,4 @@ class Certificate(models.Model):
         """Vérifie si le changement de statut est autorisé."""
         allowed = ALLOWED_STATUS_TRANSITIONS.get(self.status, [])
         return new_status in allowed
-        return new_status in allowed
+        return new_status in allo

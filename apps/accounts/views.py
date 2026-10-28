@@ -1,4 +1,5 @@
 from django.shortcuts import render
+from drf_spectacular.utils import extend_schema
 
 """
 Vues API de l'application 'accounts'.
@@ -27,6 +28,10 @@ from apps.accounts.serializers import (
 )
 from apps.accounts.services import AuthService
 from common.responses.standard import APIResponse
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ==================================================================
@@ -70,6 +75,10 @@ class LoginView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        request=LoginSerializer,
+        responses={200: None},
+    )
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         if not serializer.is_valid():
@@ -89,7 +98,6 @@ class LoginView(APIView):
             },
             message="Connexion réussie.",
         )
-
 
 # ==================================================================
 # REFRESH
@@ -133,28 +141,28 @@ class LogoutView(APIView):
     """
     POST /api/auth/logout/
 
-    Blackliste le refresh token. L'access token expirera naturellement
-    (courte durée).
+    Blackliste le refresh token fourni.
+    Idempotent : répond 200 même si le token est absent, expiré ou déjà blacklisté.
     """
 
-    permission_classes = [IsAuthenticated]
+    # ✅ Pas d'authentification obligatoire : le logout est best-effort
+    permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = LogoutSerializer(data=request.data)
-        if not serializer.is_valid():
-            return APIResponse.error(
-                message="Données invalides.",
-                errors=serializer.errors,
-                status_code=status.HTTP_400_BAD_REQUEST,
+        refresh_token = request.data.get("refresh")
+
+        # Pas de token → rien à faire, mais pas d'erreur
+        if not refresh_token:
+            return APIResponse.success(
+                data=None,
+                message="Déconnexion effectuée.",
             )
 
         try:
-            AuthService.blacklist_refresh_token(serializer.validated_data["refresh"])
+            AuthService.blacklist_refresh_token(refresh_token)
         except TokenError:
-            return APIResponse.error(
-                message="Refresh token invalide ou expiré.",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
+            # Token expiré ou déjà blacklisté : ce n'est pas une erreur
+            logger.info("Logout with invalid/expired refresh token")
 
         return APIResponse.success(
             data=None,
