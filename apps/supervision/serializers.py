@@ -259,6 +259,7 @@ class SupervisionEventSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "title",
+            "cover_image",
             "status",
             "status_label",
             "format",
