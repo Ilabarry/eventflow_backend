@@ -1,4 +1,5 @@
 from django.shortcuts import render
+from drf_spectacular.utils import extend_schema
 
 """
 Vues API de l'application 'accounts'.
@@ -145,6 +146,10 @@ class LoginView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        request=LoginSerializer,
+        responses={200: None},
+    )
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         if not serializer.is_valid():
@@ -164,7 +169,6 @@ class LoginView(APIView):
             },
             message="Connexion réussie.",
         )
-
 
 # ==================================================================
 # REFRESH
