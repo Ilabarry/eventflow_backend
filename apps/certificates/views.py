@@ -319,3 +319,86 @@ class EventCertificateStatsView(APIView):
             data=CertificateStatsSerializer(stats).data,
             message=f"Statistiques de '{event.title}'.",
         )
+
+# ==================================================================
+# ORGANISATEUR — Générer tous les certificats d'un événement
+# ==================================================================
+class GenerateEventCertificatesView(APIView):
+    """
+    POST /api/events/{event_id}/certificates/generate-all/
+
+    Génère les certificats pour toutes les inscriptions éligibles
+    (CONFIRMED + attendance PRESENT + événement terminé).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=TAG,
+        summary="Générer tous les certificats d'un événement",
+        description=(
+            "Génère les certificats pour toutes les inscriptions éligibles "
+            "(CONFIRMED + présence enregistrée + événement terminé). "
+            "Réservé à l'organisateur et aux admins."
+        ),
+        responses={200: OpenApiResponse(description="Bilan de génération.")},
+    )
+    def post(self, request, event_id):
+        from django.utils import timezone
+        from apps.attendance.constants import AttendanceStatus
+        from apps.registrations.constants import RegistrationStatus
+
+        event = get_object_or_404(Event, pk=event_id)
+
+        is_owner = event.organizer_id == request.user.id
+        is_admin = request.user.is_superuser or request.user.is_staff
+        if not (is_owner or is_admin):
+            return APIResponse.error(
+                message="Vous n'êtes pas l'organisateur de cet événement.",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        if event.end_at > timezone.now():
+            return APIResponse.error(
+                message="L'événement n'est pas encore terminé.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        eligible = (
+            event.registrations
+            .filter(
+                status=RegistrationStatus.CONFIRMED,
+                attendance__status=AttendanceStatus.PRESENT,
+            )
+            .exclude(certificate__isnull=False)
+            .select_related("participant", "attendance")
+        )
+
+        generated = []
+        errors = []
+
+        for registration in eligible:
+            try:
+                cert = CertificateService.generate_certificate(registration)
+                generated.append({
+                    "reference": cert.reference,
+                    "participant": registration.participant.full_name,
+                })
+            except Exception as e:
+                errors.append({
+                    "registration": registration.reference,
+                    "error": str(e),
+                })
+
+        return APIResponse.success(
+            data={
+                "generated_count": len(generated),
+                "error_count": len(errors),
+                "generated": generated,
+                "errors": errors,
+            },
+            message=(
+                f"{len(generated)} certificat(s) généré(s). "
+                f"{len(errors)} erreur(s)."
+            ),
+        )

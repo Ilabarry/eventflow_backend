@@ -13,6 +13,7 @@ from apps.certificates.views import (
     MyCertificatesView,
     RevokeCertificateView,
     VerifyCertificateView,
+    GenerateEventCertificatesView,
 )
 
 app_name = "certificates"
@@ -45,4 +46,9 @@ urlpatterns = [
         EventCertificateStatsView.as_view(),
         name="event-certificate-stats",
     ),
+    path(
+    "events/<uuid:event_id>/certificates/generate-all/",
+    GenerateEventCertificatesView.as_view(),
+    name="event-certificates-generate-all",
+),
 ]

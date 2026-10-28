@@ -94,6 +94,7 @@ class MyAttendanceSerializer(serializers.ModelSerializer):
     event_title = serializers.CharField(source="registration.event.title", read_only=True)
     event_start_at = serializers.DateTimeField(source="registration.event.start_at", read_only=True)
     event_end_at = serializers.DateTimeField(source="registration.event.end_at", read_only=True)
+    event_cover_image = serializers.ImageField(source="registration.event.cover_image", read_only=True)
 
     class Meta:
         model = Attendance
@@ -107,6 +108,7 @@ class MyAttendanceSerializer(serializers.ModelSerializer):
             "event_title",
             "event_start_at",
             "event_end_at",
+            "event_cover_image",
         )
         read_only_fields = fields
 
