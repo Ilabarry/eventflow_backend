@@ -71,6 +71,18 @@ class SupervisionEventApiTests(SupervisionUsersMixin, APITestCase):
         self.assertEqual(row["attendances_present"], 1)
         self.assertEqual(row["organizer_email"], "orga@test.com")
 
+    def test_organizer_contact_details_are_exposed(self):
+        """Le menu « Contacter l'organisateur » a besoin du nom, de l'e-mail et du téléphone."""
+        rows = {r["id"]: r for r in self.client.get(EVENTS_URL).json()["data"]["results"]}
+        row = rows[str(self.event.id)]
+        self.assertEqual(row["organizer_name"], self.organizer.full_name)
+        self.assertEqual(row["organizer_email"], self.organizer.email)
+        self.assertEqual(row["organizer_phone"], self.organizer.phone)
+        self.assertTrue(row["organizer_phone"])
+
+        detail = self.client.get(f"{EVENTS_URL}{self.event.id}/").json()["data"]
+        self.assertEqual(detail["organizer_phone"], self.organizer.phone)
+
     def test_cover_image_is_an_absolute_url_or_null(self):
         self.event.cover_image = "events/covers/forum.jpg"
         self.event.save(update_fields=["cover_image"])

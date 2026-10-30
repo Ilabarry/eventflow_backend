@@ -249,6 +249,8 @@ class SupervisionEventSerializer(serializers.ModelSerializer):
     organizer_id = serializers.UUIDField(source="organizer.id", read_only=True)
     organizer_email = serializers.EmailField(source="organizer.email", read_only=True)
     organizer_name = serializers.CharField(source="organizer.full_name", read_only=True)
+    # Téléphone : l'administrateur le voit déjà dans la liste des utilisateurs.
+    organizer_phone = serializers.CharField(source="organizer.phone", read_only=True)
     category_id = serializers.UUIDField(source="category.id", read_only=True, default=None)
     category_name = serializers.CharField(source="category.name", read_only=True, default=None)
     registrations_confirmed = serializers.IntegerField(read_only=True)
@@ -273,6 +275,7 @@ class SupervisionEventSerializer(serializers.ModelSerializer):
             "organizer_id",
             "organizer_email",
             "organizer_name",
+            "organizer_phone",
             "category_id",
             "category_name",
             "published_at",
