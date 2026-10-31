@@ -1,5 +1,8 @@
 from django.shortcuts import render
 from drf_spectacular.utils import extend_schema
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 """
 Vues API de l'application 'accounts'.
