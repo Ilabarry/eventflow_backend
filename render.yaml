@@ -7,6 +7,7 @@ services:
       pip install -r requirements.txt
       python manage.py collectstatic --noinput
       python manage.py migrate
+      python manage.py create_admin
     startCommand: gunicorn eventflow_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 2
     envVars:
       - key: DATABASE_URL
