@@ -14,6 +14,8 @@ import os
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 
+from apps.accounts.models import Role
+
 User = get_user_model()
 
 
@@ -22,11 +24,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         email = os.environ.get("ADMIN_EMAIL", "admin@eventflow.com")
-        password = os.environ.get("ADMIN_PASSWORD", "Event@flow@2026")
+        password = os.environ.get("ADMIN_PASSWORD", "Adminevent@adminflow@admin2026")
         first_name = os.environ.get("ADMIN_FIRST_NAME", "Admin")
         last_name = os.environ.get("ADMIN_LAST_NAME", "Eventflow")
         phone = os.environ.get("ADMIN_PHONE", "+221783249424")
+        role_name = os.environ.get("ADMIN_ROLE", "administrateur")
 
+        # 1. Créer ou récupérer l'utilisateur (sans le rôle M2M)
         user, created = User.objects.get_or_create(
             email=email,
             defaults={
@@ -43,9 +47,6 @@ class Command(BaseCommand):
         if created:
             user.set_password(password)
             user.save()
-            self.stdout.write(self.style.SUCCESS(
-                f"✓ Superutilisateur créé : {email}"
-            ))
         else:
             # Mise à jour des champs critiques si le compte existe déjà
             user.first_name = first_name
@@ -54,9 +55,18 @@ class Command(BaseCommand):
             user.is_staff = True
             user.is_superuser = True
             user.is_active = True
-            user.is_email_verified = True  # ← forcé à True
+            user.is_email_verified = True
             user.set_password(password)
             user.save()
-            self.stdout.write(self.style.SUCCESS(
-                f"✓ Superutilisateur mis à jour : {email}"
-            ))
+
+        # 2. Attribuer le rôle (relation ManyToMany)
+        role, _ = Role.objects.get_or_create(
+            name=role_name,
+            defaults={"description": "Administrateur de la plateforme EVENTFLOW"},
+        )
+        user.roles.add(role)
+
+        action = "créé" if created else "mis à jour"
+        self.stdout.write(self.style.SUCCESS(
+            f"✓ Superutilisateur {action} : {email} (rôle : {role_name})"
+        ))

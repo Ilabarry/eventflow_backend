@@ -35,12 +35,6 @@ services:
       - key: EMAIL_HOST_PASSWORD
         sync: false  # À remplir manuellement dans le dashboard Render
       - key: FRONTEND_URL
-        value: "https://eventflow.vercel.app"  # Remplacer par votre domaine frontend réel
+        value: "https://eventflow-fn.vercel.app"  # Remplacer par votre domaine frontend réel
       - key: CERTIFICATE_VERIFY_URL_BASE
-        value: "https://eventflow.vercel.app/verify"
-
-databases:
-  - name: eventflow-db
-    plan: free
-    databaseName: eventflow
-    user: eventflow_user
+        value: "https://eventflow-fn.vercel.app/verify"
