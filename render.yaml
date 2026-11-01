@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: eventflow-backend
+    plan: free
+    runtime: python
+    buildCommand: |
+      pip install -r requirements.txt
+      python manage.py collectstatic --noinput
+      python manage.py migrate
+    startCommand: gunicorn eventflow_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 2
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: eventflow-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: ".onrender.com"
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      - key: EMAIL_BACKEND
+        value: "django.core.mail.backends.smtp.EmailBackend"
+      - key: EMAIL_HOST
+        value: "smtp.gmail.com"
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_USE_TLS
+        value: "True"
+      - key: EMAIL_HOST_USER
+        sync: false  # À remplir manuellement dans le dashboard Render
+      - key: EMAIL_HOST_PASSWORD
+        sync: false  # À remplir manuellement dans le dashboard Render
+      - key: FRONTEND_URL
+        value: "https://eventflow.vercel.app"  # Remplacer par votre domaine frontend réel
+      - key: CERTIFICATE_VERIFY_URL_BASE
+        value: "https://eventflow.vercel.app/verify"
+
+databases:
+  - name: eventflow-db
+    plan: free
+    databaseName: eventflow
+    user: eventflow_user

@@ -6,6 +6,7 @@ Projet EVENTFLOW — FORCE-N 2026, groupe 2.
 from pathlib import Path
 from datetime import timedelta
 from decouple import config, Csv
+import dj_database_url
 
 # ------------------------------------------------------------------
 # BASE
@@ -15,6 +16,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
+ALLOWED_HOSTS += ['.onrender.com']  # production Autoriser tous les sous-domaines Render
 
 # ------------------------------------------------------------------
 # APPLICATIONS
@@ -55,6 +57,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',      #en production pour servir les fichiers statiques, le niveau gratuit de Render n'inclut pas de CDN
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -62,6 +65,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 ROOT_URLCONF = 'eventflow_backend.urls'
 
@@ -85,6 +90,8 @@ WSGI_APPLICATION = 'eventflow_backend.wsgi.application'
 # ------------------------------------------------------------------
 # BASE DE DONNÉES — PostgreSQL
 # ------------------------------------------------------------------
+
+# 1. Configuration locale par défaut (PostgreSQL via decouple)
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -95,6 +102,15 @@ DATABASES = {
         'PORT': config('DB_PORT', default='5432'),
     }
 }
+
+# 2. En production (Render/Neon), DATABASE_URL écrase la config locale
+DATABASE_URL = config('DATABASE_URL', default=None)
+if DATABASE_URL:
+    DATABASES['default'] = dj_database_url.parse(
+        DATABASE_URL,
+        conn_max_age=600,
+        conn_health_checks=True,
+    )
 
 # ------------------------------------------------------------------
 # AUTHENTIFICATION
