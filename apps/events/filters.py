@@ -12,9 +12,12 @@ Permet de filtrer via des paramètres URL :
     ?upcoming=true
     ?search=tech
     ?ordering=-start_at
+    ?ordering=RANDOM
+    ?ordering=RANDOM:12345   (seed optionnel, ordre stable par seed)
 """
 
 import django_filters
+from django.db import models
 from django.utils import timezone
 
 from apps.events.constants import (
@@ -78,12 +81,18 @@ class EventFilter(django_filters.FilterSet):
     # ------------------------------------------------------------------
     # Tri
     # ------------------------------------------------------------------
+    # ⚠️ On définit `method=` pour intercepter RANDOM et valider contre
+    # la liste blanche MANUELLEMENT. Comme `method=` remplace le
+    # traitement natif d'OrderingFilter, on ne peut PAS déléguer à
+    # `filter()` (récursion infinie). On réimplémente donc le tri ici.
     ordering = django_filters.OrderingFilter(
-        fields=tuple(
-            (field.lstrip("-"), field.lstrip("-"))
-            for field in ALLOWED_ORDERING_FIELDS
+        fields=ALLOWED_ORDERING_FIELDS,
+        method="filter_ordering",
+        help_text=(
+            "Champs de tri autorisés (préfixe '-' pour descendant). "
+            "Utiliser 'RANDOM' pour un ordre aléatoire, "
+            "ou 'RANDOM:<seed>' pour un ordre aléatoire stable."
         ),
-        help_text="Champs de tri autorisés.",
     )
 
     class Meta:
@@ -122,11 +131,72 @@ class EventFilter(django_filters.FilterSet):
         PostgreSQL full-text search (SearchVector).
         """
         if value:
-            from django.db.models import Q
-
             return queryset.filter(
-                Q(title__icontains=value)
-                | Q(short_description__icontains=value)
-                | Q(city__icontains=value)
+                models.Q(title__icontains=value)
+                | models.Q(short_description__icontains=value)
+                | models.Q(city__icontains=value)
             )
         return queryset
+
+    def filter_ordering(self, queryset, name, value):
+        """
+        Tri personnalisé.
+
+        Contrat :
+            - ``?ordering=RANDOM``         → aléatoire simple (order_by('?'))
+            - ``?ordering=RANDOM:<seed>``  → aléatoire STABLE pour un seed donné
+                                            (utile pour que la pagination reste
+                                             cohérente entre les pages)
+            - ``?ordering=field``          → tri croissant si `field` ∈ liste blanche
+            - ``?ordering=-field``         → tri décroissant si `field` ∈ liste blanche
+            - autre valeur                 → ignorée (on renvoie le queryset tel quel)
+
+        ⚠️ On ne peut PAS appeler `OrderingFilter.filter()` ici : `method=` a
+        remplacé son comportement, et déléguer à `filter()` provoquerait une
+        récursion infinie.
+        """
+        if not value:
+            return queryset
+
+        # `value` peut être une chaîne ("-start_at") ou une liste
+        # (OrderingFilter accepte plusieurs tri séparés par des virgules).
+        raw_values = value if isinstance(value, (list, tuple)) else [value]
+
+        # ----- Cas 1 : RANDOM / RANDOM:<seed> -----
+        for raw in raw_values:
+            raw_str = str(raw)
+            upper = raw_str.upper()
+
+            if upper == "RANDOM":
+                # Aléatoire simple. Sur SQLite et PostgreSQL, `order_by('?')`
+                # fonctionne. Sur de très grosses tables c'est lent mais
+                # acceptable pour un MVP.
+                return queryset.order_by("?")
+
+            if upper.startswith("RANDOM:"):
+                seed = raw_str.split(":", 1)[1] or "0"
+                # Hash déterministe de (id + seed) : pour un même seed,
+                # l'ordre est stable → la pagination reste cohérente.
+                return queryset.annotate(
+                    _rand=models.functions.MD5(
+                        models.functions.Concat(
+                            models.F("id"),
+                            models.Value(seed),
+                            output_field=models.TextField(),
+                        )
+                    )
+                ).order_by("_rand")
+
+        # ----- Cas 2 : tri standard, validé contre la liste blanche -----
+        allowed = set(ALLOWED_ORDERING_FIELDS)
+        ordering_fields = []
+        for raw in raw_values:
+            field = str(raw).lstrip("-")
+            if field in allowed:
+                # On conserve le "-" s'il était présent (tri descendant)
+                ordering_fields.append(str(raw))
+
+        if not ordering_fields:
+            return queryset
+
+        return queryset.order_by(*ordering_fields)

@@ -118,13 +118,11 @@ ACCESS_URL_MAX_LENGTH = 500
 # Sinon un utilisateur pourrait injecter du SQL via order_by.
 ALLOWED_ORDERING_FIELDS = (
     "start_at",
-    "-start_at",
     "created_at",
-    "-created_at",
     "published_at",
-    "-published_at",
     "title",
-    "-title",
+    "participation_type",
+    "RANDOM",
 )
 
 
