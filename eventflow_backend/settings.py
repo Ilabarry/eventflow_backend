@@ -66,8 +66,10 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
 ROOT_URLCONF = 'eventflow_backend.urls'
 
 TEMPLATES = [
@@ -273,3 +275,6 @@ CERTIFICATE_VERIFY_URL_BASE = config(
     "CERTIFICATE_VERIFY_URL_BASE",
     default=f"{FRONTEND_URL}/verify",
 )
+
+# production
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')   
