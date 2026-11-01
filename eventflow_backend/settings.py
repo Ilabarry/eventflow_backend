@@ -149,10 +149,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # ------------------------------------------------------------------
 # EMAIL (dev : console)
 # ------------------------------------------------------------------
-EMAIL_BACKEND = config(
-    'EMAIL_BACKEND',
-    default='django.core.mail.backends.console.EmailBackend'
-)
+INSTALLED_APPS += ['anymail']
+
+EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
+ANYMAIL = {"BREVO_API_KEY": config("BREVO_API_KEY", default="")}
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='EVENTFLOW <noreply@eventflow.sn>')
 
 # ✅ Lire les autres paramètres SMTP depuis le .env
