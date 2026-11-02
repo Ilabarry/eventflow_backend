@@ -15,6 +15,8 @@ from apps.payments.constants import (
     PaymentStatus,
 )
 from apps.payments.models import Payment
+from django.conf import settings
+
 
 
 # ==================================================================
@@ -116,26 +118,19 @@ class PaymentOrganizerSerializer(serializers.ModelSerializer):
 # ÉCRITURE — Initiation
 # ==================================================================
 class InitiatePaymentSerializer(serializers.Serializer):
-    """
-    Serializer pour initier un paiement.
-
-    IMPORTANT : le montant n'est PAS fourni par le client.
-    Le backend le calcule à partir de Event.base_price.
-    """
-
     registration_id = serializers.UUIDField()
     payment_method = serializers.ChoiceField(choices=PaymentMethod.choices)
     provider = serializers.ChoiceField(choices=PaymentProvider.choices)
 
     def validate_registration_id(self, value):
-        """Vérifie que la Registration existe et est payable."""
         from apps.registrations.models import Registration
         from apps.registrations.constants import RegistrationStatus
 
+        user = self.context["request"].user
         try:
             registration = Registration.objects.select_related(
                 "event", "participant"
-            ).get(pk=value)
+            ).get(pk=value, participant=user)
         except Registration.DoesNotExist:
             raise serializers.ValidationError("Inscription introuvable.")
 
@@ -146,6 +141,16 @@ class InitiatePaymentSerializer(serializers.Serializer):
 
         self._registration = registration
         return value
+
+    def validate(self, attrs):
+        if not settings.PAYMENT_DEVELOPMENT_ENABLED and (
+            attrs["provider"] == PaymentProvider.DEVELOPMENT
+            or attrs["payment_method"] == PaymentMethod.DEVELOPMENT
+        ):
+            raise serializers.ValidationError(
+                "Ce moyen de paiement n'est pas disponible."
+            )
+        return attrs
 
     @property
     def registration(self):

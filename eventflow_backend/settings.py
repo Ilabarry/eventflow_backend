@@ -194,6 +194,9 @@ REST_FRAMEWORK = {
         'attendance_qr': '120/min',
         # Certificates
         'certificate_verify': '30/min',
+        # Payments
+        'payment_initiate': config('PAYMENT_INITIATE_RATE', default='10/min'),
+        'payment_action': config('PAYMENT_ACTION_RATE', default='30/min'),
     },
 }
 
@@ -223,7 +226,7 @@ SPECTACULAR_SETTINGS = {
 PAYMENT_DEFAULT_CURRENCY = config("PAYMENT_DEFAULT_CURRENCY", default="XOF")
 PAYMENT_DEVELOPMENT_ENABLED = config(
     "PAYMENT_DEVELOPMENT_ENABLED",
-    default=DEBUG,
+    default=False,
     cast=bool,
 )
 

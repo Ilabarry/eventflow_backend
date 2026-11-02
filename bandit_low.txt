@@ -1,0 +1,272 @@
+Run started:2026-11-02 10:41:23.332337+00:00
+
+Test results:
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'Les deux mots de passe ne correspondent pas.'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: apps/accounts\serializers.py:91:17
+90	            raise serializers.ValidationError(
+91	                {"password_confirm": "Les deux mots de passe ne correspondent pas."}
+92	            )
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'Les deux mots de passe ne correspondent pas.'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: apps/accounts\serializers.py:221:17
+220	            raise serializers.ValidationError(
+221	                {"new_password_confirm": "Les deux mots de passe ne correspondent pas."}
+222	            )
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'TestPass2026'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: apps/attendance\tests.py:61:15
+60	            email=email,
+61	            password="TestPass2026",
+62	            first_name="Test",
+63	            last_name=email.split("@")[0],
+64	            phone=f"+2299000{cls._phone_counter:04d}",
+65	            **extra,
+66	        )
+67	        if role:
+68	            user.add_role(role)
+69	        return user
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'TestPass2026'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: apps/certificates\tests.py:48:25
+47	            email="organisateur.certificat@test.com",
+48	            password="TestPass2026",
+49	            first_name="Test",
+50	            last_name="Organisateur",
+51	            phone="+221770000001",
+52	        )
+53	        self.organizer.add_role(ROLE_ORGANIZER)
+54	
+55	        self.participant = User.objects.create_user(
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'TestPass2026'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: apps/certificates\tests.py:57:27
+56	            email="participant.certificat@test.com",
+57	            password="TestPass2026",
+58	            first_name="Awa",
+59	            last_name="Test",
+60	            phone="+221770000002",
+61	        )
+62	        self.participant.add_role(ROLE_PARTICIPANT)
+63	
+64	        category = Category.objects.create(
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'TestPass2026'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: apps/certificates\tests.py:175:25
+174	            email="organisateur.api.certificat@test.com",
+175	            password="TestPass2026",
+176	            first_name="Test",
+177	            last_name="Organisateur",
+178	            phone="+221770000011",
+179	        )
+180	        self.organizer.add_role(ROLE_ORGANIZER)
+181	
+182	        self.participant = User.objects.create_user(
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'TestPass2026'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: apps/certificates\tests.py:184:27
+183	            email="participant.api.certificat@test.com",
+184	            password="TestPass2026",
+185	            first_name="Awa",
+186	            last_name="Test",
+187	            phone="+221770000012",
+188	        )
+189	        self.participant.add_role(ROLE_PARTICIPANT)
+190	
+191	        category = Category.objects.create(
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'Test-Password-123!'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: apps/dashboards\tests.py:104:15
+103	            email=email,
+104	            password="Test-Password-123!",
+105	            first_name="Test",
+106	            last_name="User",
+107	            phone=phone,
+108	        )
+109	
+110	    def _create_event(
+111	        self,
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'Test-Password-123!'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: apps/dashboards\tests.py:236:15
+235	            email=email,
+236	            password="Test-Password-123!",
+237	            first_name="Test",
+238	            last_name="Participant",
+239	            phone=phone,
+240	        )
+241	        user.add_role(role)
+242	        return user
+243	
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'Test-Password-123!'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: apps/dashboards\tests.py:381:15
+380	            email=email,
+381	            password="Test-Password-123!",
+382	            first_name="Test",
+383	            last_name="Dashboard",
+384	            phone=phone,
+385	            is_active=is_active,
+386	            is_staff=is_staff,
+387	        )
+388	        if role:
+389	            user.add_role(role)
+390	        return user
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'TestPass123!'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: apps/notifications\tests.py:23:21
+22	            email="alice@example.test",
+23	            password="TestPass123!",
+24	            first_name="Alice",
+25	            last_name="Test",
+26	            phone="+221770000001",
+27	        )
+28	        self.bob = User.objects.create_user(
+29	            email="bob@example.test",
+30	            password="TestPass123!",
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'TestPass123!'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: apps/notifications\tests.py:30:19
+29	            email="bob@example.test",
+30	            password="TestPass123!",
+31	            first_name="Bob",
+32	            last_name="Test",
+33	            phone="+221770000002",
+34	        )
+35	
+36	        # Notifications pour Alice
+37	        self.alice_notif_read = Notification.objects.create(
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'secret123'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: apps/supervision\test_audit.py:38:12
+37	            "email": "awa@test.com",
+38	            "password": "secret123",
+39	            "nested": {"refresh": "eyJ...", "access_token": "eyJ...", "city": "Cotonou"},
+40	            "items": [{"card_number": "4111111111111111"}],
+41	        })
+42	        self.assertEqual(cleaned["email"], "awa@test.com")
+43	        self.assertEqual(cleaned["password"], FILTERED_VALUE)
+44	        self.assertEqual(cleaned["nested"]["refresh"], FILTERED_VALUE)
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'eyJ...'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: apps/supervision\test_audit.py:39:44
+38	            "password": "secret123",
+39	            "nested": {"refresh": "eyJ...", "access_token": "eyJ...", "city": "Cotonou"},
+40	            "items": [{"card_number": "4111111111111111"}],
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'x'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: apps/supervision\test_audit.py:64:72
+63	        request = RequestFactory().get("/", REMOTE_ADDR="10.0.0.7", HTTP_USER_AGENT="Firefox/140")
+64	        entry = log_example(self.role_admin, request=request, metadata={"password": "x", "old_status": "active"})
+65	        self.assertEqual(entry.actor, self.role_admin)
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'TestPass2026'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: apps/supervision\test_security.py:35:15
+34	            email=email,
+35	            password="TestPass2026",
+36	            first_name="Test",
+37	            last_name=email.split("@")[0],
+38	            phone=f"+2299100{cls._counter:04d}",
+39	            **extra,
+40	        )
+41	        if role:
+42	            user.add_role(role)
+43	        return user
+
+--------------------------------------------------
+>> Issue: [B106:hardcoded_password_funcarg] Possible hardcoded password: 'Test-Password-123!'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b106_hardcoded_password_funcarg.html
+   Location: apps/tickets\tests.py:54:15
+53	            email=email,
+54	            password="Test-Password-123!",
+55	            first_name="Test",
+56	            last_name="Ticket",
+57	            phone=phone,
+58	        )
+59	        user.add_role(role)
+60	        return user
+61	
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 18176
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 17
+		Medium: 0
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 17
+		High: 0
+Files skipped (0):

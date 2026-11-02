@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from apps.events.constants import ParticipationType
 from apps.payments.constants import (
+    ACTIVE_STATUSES,
     DEFAULT_CURRENCY,
     REFERENCE_ALPHABET,
     REFERENCE_PREFIX,
@@ -42,6 +43,10 @@ logger = logging.getLogger(__name__)
 
 class PaymentService:
     """Service métier pour les paiements."""
+    @staticmethod
+    def _lock(payment: Payment) -> Payment:
+        """Verrouille la ligne du paiement (à appeler dans une transaction)."""
+        return Payment.objects.select_for_update(of=("self",)).get(pk=payment.pk)
 
     # ------------------------------------------------------------------
     # GÉNÉRATION DE RÉFÉRENCE
@@ -123,54 +128,55 @@ class PaymentService:
         provider_name: str,
         idempotency_key: str | None = None,
     ) -> Payment:
-        """
-        Initie un nouveau paiement.
+        
+        # 0. Provider de développement : désactivé hors mode dev
+        
+        if (
+            provider_name == PaymentProvider.DEVELOPMENT
+            and not settings.PAYMENT_DEVELOPMENT_ENABLED
+        ):
+            raise PaymentProviderUnavailable(
+                detail="Ce moyen de paiement n'est pas disponible."
+            )
 
-        Étapes :
-            1. Vérifier que la Registration est PENDING.
-            2. Vérifier qu'aucun paiement SUCCESS n'existe déjà.
-            3. Vérifier l'idempotency_key.
-            4. Calculer le montant côté backend.
-            5. Verrouiller la Registration (select_for_update).
-            6. Créer le Payment (PENDING).
-            7. Appeler le provider.
-            8. Mettre à jour le Payment avec la réponse.
-            9. Si SUCCESS → déléguer à mark_as_success() (confirm + ticket + notifs).
-
-        Raises:
-            PaymentNotPayable: Si la Registration n'est pas payable.
-            PaymentAlreadySuccessful: Si un paiement SUCCESS existe déjà.
-            PaymentProviderUnavailable: Si le provider n'existe pas.
-        """
-        # 1. Verrouiller la Registration pour éviter les doubles initiations
+        # 1. Verrouiller la Registration
         locked_registration = Registration.objects.select_for_update().get(
             pk=registration.pk
         )
 
-        # 2. Vérifier le statut de la Registration
+        # 2. Idempotence : un retry renvoie le paiement existant (même inscription)
+        if idempotency_key:
+            existing = Payment.objects.filter(
+                idempotency_key=idempotency_key,
+                registration=locked_registration,
+            ).first()
+            if existing:
+                logger.info(
+                    "Idempotency key reused | payment=%s",
+                    existing.transaction_reference,
+                )
+                return existing
+
+        # 3. Statut de la Registration
         if locked_registration.status != RegistrationStatus.PENDING:
             raise PaymentNotPayable(
                 detail=f"L'inscription doit être en attente. Statut actuel : {locked_registration.status}."
             )
 
-        # 3. Vérifier qu'aucun paiement SUCCESS n'existe déjà
-        if Payment.objects.filter(
+        # 4. Un seul paiement actif (PENDING ou SUCCESS) par inscription
+        active = Payment.objects.filter(
             registration=locked_registration,
-            status=PaymentStatus.SUCCESS,
-        ).exists():
-            raise PaymentAlreadySuccessful()
+            status__in=ACTIVE_STATUSES,
+        ).first()
+        if active:
+            if active.status == PaymentStatus.SUCCESS:
+                raise PaymentAlreadySuccessful()
+            raise PaymentNotPayable(
+                detail="Un paiement est déjà en cours pour cette inscription. "
+                       "Annulez-le avant d'en initier un nouveau."
+            )
 
-        # 4. Gérer l'idempotency_key
-        if idempotency_key:
-            existing = Payment.objects.filter(idempotency_key=idempotency_key).first()
-            if existing:
-                logger.info(
-                    "Idempotency key reused | key=%s | payment=%s",
-                    idempotency_key, existing.transaction_reference,
-                )
-                return existing
-
-        # 5. Calculer le montant (côté backend)
+        # 5. Calcul du montant (inchangé, la suite de la méthode ne bouge pas)
         amount, currency = PaymentService.calculate_amount(locked_registration)
 
         # 6. Créer le Payment
@@ -327,8 +333,10 @@ class PaymentService:
             - Le simulateur (DevelopmentPaymentProvider)
             - Les futurs webhooks
         """
+        payment = PaymentService._lock(payment)
         # ✅ Idempotence : déjà SUCCESS → ne rien refaire
-        if payment.status == PaymentStatus.SUCCESS:
+        payment = PaymentService._lock(payment)
+        if payment.status == PaymentStatus.FAILED:
             logger.debug(
                 "Payment already SUCCESS (idempotent) | ref=%s",
                 payment.transaction_reference,
@@ -412,6 +420,7 @@ class PaymentService:
     @transaction.atomic
     def cancel_payment(*, payment: Payment) -> Payment:
         """Annule un paiement PENDING."""
+        payment = PaymentService._lock(payment)
         if payment.status == PaymentStatus.CANCELLED:
             raise InvalidPaymentState(detail="Ce paiement est déjà annulé.")
 
@@ -434,6 +443,7 @@ class PaymentService:
     @transaction.atomic
     def refund_payment(*, payment: Payment) -> Payment:
         """Rembourse un paiement SUCCESS."""
+        payment = PaymentService._lock(payment)
         if payment.status == PaymentStatus.REFUNDED:
             raise InvalidPaymentState(detail="Ce paiement est déjà remboursé.")
 
@@ -474,6 +484,7 @@ class PaymentService:
             payment: Le paiement à simuler.
             result: "SUCCESS", "FAILED", "CANCELLED" ou "PENDING".
         """
+        payment = PaymentService._lock(payment)
         if not settings.PAYMENT_DEVELOPMENT_ENABLED:
             raise PaymentProviderUnavailable(
                 detail="La simulation n'est pas disponible en production."
@@ -500,10 +511,7 @@ class PaymentService:
                 failure_message=provider_result.message,
             )
         elif provider_result.status == "CANCELLED":
-            payment.status = PaymentStatus.CANCELLED
-            payment.cancelled_at = timezone.now()
-            payment.save()
-            return payment
+            return PaymentService.cancel_payment(payment=payment)
 
         # PENDING : rien à faire
         return payment

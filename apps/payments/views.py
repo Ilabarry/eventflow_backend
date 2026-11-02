@@ -39,22 +39,22 @@ from apps.payments.serializers import (
 from apps.payments.services import PaymentService
 from apps.registrations.models import Registration
 from common.responses.standard import APIResponse
+import hashlib
+from rest_framework.throttling import ScopedRateThrottle
 
 
 # ==================================================================
 # INITIATION
 # ==================================================================
 class InitiatePaymentView(APIView):
-    """
-    POST /api/payments/initiate/
-
-    Initie un paiement pour une inscription PENDING.
-    """
-
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "payment_initiate"
 
     def post(self, request):
-        serializer = InitiatePaymentSerializer(data=request.data)
+        serializer = InitiatePaymentSerializer(
+            data=request.data, context={"request": request}
+        )
         if not serializer.is_valid():
             return APIResponse.error(
                 message="Données invalides.",
@@ -64,15 +64,20 @@ class InitiatePaymentView(APIView):
 
         registration = serializer.registration
 
-        # Vérifier que l'utilisateur est bien le participant
+        # Filet de sécurité (le serializer filtre déjà par participant)
         if registration.participant_id != request.user.id:
             return APIResponse.error(
                 message="Vous n'êtes pas autorisé à payer cette inscription.",
                 status_code=status.HTTP_403_FORBIDDEN,
             )
 
-        # Récupérer l'idempotency_key depuis le header (optionnel)
-        idempotency_key = request.headers.get("Idempotency-Key", "") or None
+        raw_key = request.headers.get("Idempotency-Key", "").strip()
+        idempotency_key = (
+            hashlib.sha256(
+                f"{request.user.id}:{registration.id}:{raw_key}".encode()
+            ).hexdigest()
+            if raw_key else None
+        )
 
         payment = PaymentService.initiate_payment(
             registration=registration,
@@ -182,6 +187,8 @@ class PaymentCancelView(APIView):
     """POST /api/payments/{id}/cancel/"""
 
     permission_classes = [IsAuthenticated, IsPaymentOwner]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "payment_action"
 
     def post(self, request, pk):
         payment = get_object_or_404(Payment, pk=pk)
@@ -314,19 +321,15 @@ class EventPaymentStatsView(APIView):
 # SIMULATION (DEVELOPMENT ONLY)
 # ==================================================================
 class PaymentSimulateView(APIView):
-    """
-    POST /api/payments/development/{id}/simulate/
-
-    ⚠️ Uniquement disponible en développement.
-    """
-
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsPaymentOwner]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "payment_action"
 
     def post(self, request, pk):
         if not settings.PAYMENT_DEVELOPMENT_ENABLED:
             return APIResponse.error(
-                message="La simulation est désactivée.",
-                status_code=status.HTTP_403_FORBIDDEN,
+                message="Introuvable.",
+                status_code=status.HTTP_404_NOT_FOUND,
             )
 
         payment = get_object_or_404(Payment, pk=pk)
