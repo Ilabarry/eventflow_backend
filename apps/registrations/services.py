@@ -8,9 +8,9 @@ simultanément.
 """
 
 import logging
-from django.db import transaction
 import secrets
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 
 from apps.events.constants import CapacityType, ParticipationType
@@ -18,7 +18,7 @@ from apps.events.models import Event
 from apps.registrations.constants import (
     ACTIVE_STATUSES,
     REFERENCE_ALPHABET,
-    REFERENCE_MAX_LENGTH,
+    REFERENCE_MAX_LENGTH,  # noqa: F401
     REFERENCE_PREFIX,
     REFERENCE_SUFFIX_LENGTH,
     RegistrationStatus,
@@ -45,6 +45,7 @@ class RegistrationService:
     def generate_reference() -> str:
         """Génère une référence unique EVF-REG-YYYY-XXXXXX."""
         from django.utils import timezone
+
         year = timezone.now().year
         suffix = "".join(
             secrets.choice(REFERENCE_ALPHABET)
@@ -83,9 +84,12 @@ class RegistrationService:
         Raises:
             AlreadyRegistered: Si le participant a déjà une inscription active.
             EventFull: Si la capacité est atteinte.
-            RegistrationNotAllowed: Si l'utilisateur n'est pas actif.
+            RegistrationNotAllowed: Si l'utilisateur n'est pas actif
+                ou si l'événement n'accepte plus d'inscriptions.
             PaymentNotPayable: Si l'événement est PAID sans ticket_type.
         """
+        from apps.registrations.validators import validate_event_is_open
+
         # 1. Vérifier que le participant est actif
         if not participant.is_active:
             raise RegistrationNotAllowed(
@@ -95,8 +99,17 @@ class RegistrationService:
         # 2. Verrouiller l'événement (SELECT ... FOR UPDATE)
         locked_event = Event.objects.select_for_update().get(pk=event.pk)
 
+        # 2b. Re-vérifier l'ouverture de l'événement sous verrou
+        try:
+            validate_event_is_open(locked_event)
+        except DjangoValidationError as e:
+            raise RegistrationNotAllowed(detail=" ".join(e.messages))
+
         # 3. Vérifier la capacité (uniquement si LIMITED)
-        if locked_event.capacity_type == CapacityType.LIMITED:
+        if (
+            locked_event.capacity_type == CapacityType.LIMITED
+            and locked_event.capacity_limit is not None
+        ):
             active_count = Registration.objects.filter(
                 event=locked_event,
                 status__in=ACTIVE_STATUSES,
@@ -172,7 +185,7 @@ class RegistrationService:
             registration.reference, locked_event.id, participant.email, initial_status,
         )
 
-                # ⚠️ NOUVEAU : notifier l'organisateur
+        # Notifier l'organisateur
         try:
             with transaction.atomic():
                 from apps.notifications.constants import NotificationType
@@ -200,13 +213,51 @@ class RegistrationService:
     @staticmethod
     @transaction.atomic
     def cancel_registration(*, registration: Registration, cancelled_by_user) -> Registration:
-        """Annule une inscription."""
+        """
+        Annule une inscription.
+
+        Règles :
+            - Verrou sur l'inscription (pas de course annulation/confirmation).
+            - Transition vérifiée via la machine d'états du modèle.
+            - Une inscription déjà payée (paiement SUCCESS) ne peut pas être
+              annulée : le paiement doit d'abord être remboursé.
+            - Les paiements PENDING encore ouverts sont annulés.
+        """
+        from django.utils import timezone
+        from apps.payments.constants import PaymentStatus
+        from apps.payments.models import Payment
+
+        # Verrou + rechargement (on garde le même objet pour l'appelant)
+        Registration.objects.select_for_update().get(pk=registration.pk)
+        registration.refresh_from_db()
+
         if registration.status == RegistrationStatus.CANCELLED:
             raise RegistrationAlreadyCancelled()
 
+        if not registration.can_transition_to(RegistrationStatus.CANCELLED):
+            raise RegistrationNotAllowed(
+                detail=f"Transition '{registration.status}' → 'CANCELLED' non autorisée."
+            )
+
+        # Une inscription payée doit d'abord être remboursée
+        if Payment.objects.filter(
+            registration=registration, status=PaymentStatus.SUCCESS
+        ).exists():
+            raise RegistrationNotAllowed(
+                detail=(
+                    "Cette inscription est payée : un remboursement est "
+                    "nécessaire avant l'annulation."
+                )
+            )
+
+        # Fermer les paiements encore en attente
+        now = timezone.now()
+        Payment.objects.filter(
+            registration=registration, status=PaymentStatus.PENDING
+        ).update(status=PaymentStatus.CANCELLED, cancelled_at=now, updated_at=now)
+
         registration.status = RegistrationStatus.CANCELLED
-        from django.utils import timezone
-        registration.cancelled_at = timezone.now()
+        registration.cancelled_at = now
         registration.save(update_fields=["status", "cancelled_at", "updated_at"])
 
         logger.info(
@@ -214,7 +265,7 @@ class RegistrationService:
             registration.reference, cancelled_by_user.email,
         )
 
-        # ⚠️ NOUVEAU : notifier le participant
+        # Notifier le participant
         try:
             with transaction.atomic():
                 from apps.notifications.constants import NotificationType
@@ -243,6 +294,10 @@ class RegistrationService:
     @transaction.atomic
     def confirm_registration(*, registration: Registration, confirmed_by_user=None) -> Registration:
         """Confirme une inscription en PENDING."""
+        # Verrou + rechargement (on garde le même objet pour l'appelant)
+        Registration.objects.select_for_update().get(pk=registration.pk)
+        registration.refresh_from_db()
+
         if not registration.can_transition_to(RegistrationStatus.CONFIRMED):
             raise RegistrationNotAllowed(
                 detail=f"Transition '{registration.status}' → 'CONFIRMED' non autorisée."
@@ -257,7 +312,7 @@ class RegistrationService:
             confirmed_by_user.email if confirmed_by_user else "system",
         )
 
-        # ⚠️ NOUVEAU : notifier le participant
+        # Notifier le participant
         try:
             with transaction.atomic():
                 from apps.notifications.constants import NotificationType

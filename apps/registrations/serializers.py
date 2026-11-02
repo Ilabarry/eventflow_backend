@@ -11,6 +11,7 @@ On utilise plusieurs serializers spécialisés :
     - RegistrationConfirmSerializer      : confirm (organisateur, futur)
 """
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from apps.events.serializers import EventListSerializer
@@ -38,6 +39,10 @@ class RegistrationCreateSerializer(serializers.Serializer):
         - reference (généré)
         - status (CONFIRMED ou PENDING selon le type)
         - registered_at (now)
+
+    ⚠️ Aucun verrou (select_for_update) ici : le verrouillage de l'événement
+    et la re-vérification des règles se font dans RegistrationService,
+    à l'intérieur d'une transaction.
     """
 
     event_id = serializers.UUIDField()
@@ -72,12 +77,10 @@ class RegistrationCreateSerializer(serializers.Serializer):
         # 2. Vérifier que l'événement accepte les inscriptions
         try:
             validate_event_is_open(event)
-        except Exception as e:
-            raise serializers.ValidationError(
-                {"event_id": str(e)}
-            )
+        except DjangoValidationError as e:
+            raise serializers.ValidationError({"event_id": e.messages})
 
-        # 3. Récupérer le ticket_type si fourni
+        # 3. Récupérer le ticket_type si fourni (uniquement ceux de CET événement)
         ticket_type = None
         if ticket_type_id:
             try:
@@ -93,10 +96,8 @@ class RegistrationCreateSerializer(serializers.Serializer):
         # 4. Vérifier la cohérence PAID/FREE
         try:
             validate_participation_type(event, ticket_type=ticket_type)
-        except Exception as e:
-            raise serializers.ValidationError(
-                {"ticket_type_id": str(e)}
-            )
+        except DjangoValidationError as e:
+            raise serializers.ValidationError({"ticket_type_id": e.messages})
 
         # Stocker pour la couche service
         attrs["_event"] = event

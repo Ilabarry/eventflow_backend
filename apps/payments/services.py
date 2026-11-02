@@ -3,9 +3,11 @@ Service métier du module Payment.
 
 ⚠️ POINTS CRITIQUES :
     1. Le montant est TOUJOURS calculé côté backend (jamais fourni par Angular).
-    2. Un seul paiement SUCCESS par Registration (contrainte DB + service).
-    3. La création utilise select_for_update() pour éviter les doubles paiements.
+    2. Un seul paiement actif (PENDING/SUCCESS) par Registration.
+    3. Les écritures utilisent select_for_update() pour éviter les doubles paiements
+       et les conflits entre transitions concurrentes.
     4. L'idempotency_key permet de gérer les retries réseau proprement.
+    5. Le mode développement est contrôlé UNIQUEMENT par PAYMENT_DEVELOPMENT_ENABLED.
 """
 
 import logging
@@ -43,6 +45,10 @@ logger = logging.getLogger(__name__)
 
 class PaymentService:
     """Service métier pour les paiements."""
+
+    # ------------------------------------------------------------------
+    # VERROU
+    # ------------------------------------------------------------------
     @staticmethod
     def _lock(payment: Payment) -> Payment:
         """Verrouille la ligne du paiement (à appeler dans une transaction)."""
@@ -81,7 +87,7 @@ class PaymentService:
         Règle absolue : le montant vient du backend, jamais d'Angular.
 
         Priorité :
-            1. Prix du TicketType choisi (si défini et > 0)
+            1. Prix du TicketType choisi (si défini)
             2. Prix de base de l'Event (fallback)
 
         Returns:
@@ -98,7 +104,7 @@ class PaymentService:
                 detail="Cet événement est gratuit, aucun paiement n'est nécessaire."
             )
 
-        # ✅ Priorité au prix du TicketType choisi
+        # Priorité au prix du TicketType choisi
         price = None
         if registration.ticket_type_id and registration.ticket_type is not None:
             tt_price = getattr(registration.ticket_type, "price", None)
@@ -128,9 +134,27 @@ class PaymentService:
         provider_name: str,
         idempotency_key: str | None = None,
     ) -> Payment:
-        
+        """
+        Initie un nouveau paiement.
+
+        Étapes :
+            0. Refuser le provider de développement s'il est désactivé.
+            1. Verrouiller la Registration.
+            2. Idempotence : un retry renvoie le paiement existant.
+            3. Vérifier que la Registration est PENDING.
+            4. Un seul paiement actif (PENDING/SUCCESS) par inscription.
+            5. Calculer le montant côté backend.
+            6. Créer le Payment (PENDING).
+            7. Appeler le provider.
+            8. Mettre à jour le Payment avec la réponse.
+            9. Si SUCCESS → pipeline post-success (confirm + ticket + notifs).
+
+        Raises:
+            PaymentNotPayable: Si la Registration n'est pas payable.
+            PaymentAlreadySuccessful: Si un paiement SUCCESS existe déjà.
+            PaymentProviderUnavailable: Si le provider n'est pas disponible.
+        """
         # 0. Provider de développement : désactivé hors mode dev
-        
         if (
             provider_name == PaymentProvider.DEVELOPMENT
             and not settings.PAYMENT_DEVELOPMENT_ENABLED
@@ -160,7 +184,10 @@ class PaymentService:
         # 3. Statut de la Registration
         if locked_registration.status != RegistrationStatus.PENDING:
             raise PaymentNotPayable(
-                detail=f"L'inscription doit être en attente. Statut actuel : {locked_registration.status}."
+                detail=(
+                    "L'inscription doit être en attente. "
+                    f"Statut actuel : {locked_registration.status}."
+                )
             )
 
         # 4. Un seul paiement actif (PENDING ou SUCCESS) par inscription
@@ -176,7 +203,7 @@ class PaymentService:
                        "Annulez-le avant d'en initier un nouveau."
             )
 
-        # 5. Calcul du montant (inchangé, la suite de la méthode ne bouge pas)
+        # 5. Calcul du montant (côté backend)
         amount, currency = PaymentService.calculate_amount(locked_registration)
 
         # 6. Créer le Payment
@@ -216,12 +243,8 @@ class PaymentService:
             payment.metadata = {"provider_message": result.message}
             payment.save()
 
-            # 9. Si SUCCESS → déléguer tout le pipeline (confirm + ticket + notifs)
+            # 9. Si SUCCESS → pipeline post-traitement (confirm + ticket + notifs)
             if payment.status == PaymentStatus.SUCCESS:
-                # ⚠️ mark_as_success est idempotent : si déjà SUCCESS, il retourne
-                # le payment sans rien refaire. Ici payment.status == SUCCESS,
-                # donc on va directement au pipeline post-traitement via un
-                # helper interne pour éviter le check idempotent prématuré.
                 PaymentService._post_success_pipeline(payment=payment)
 
             return payment
@@ -264,12 +287,14 @@ class PaymentService:
             registration=payment.registration
         )
 
-        # 2. Émettre le ticket (idempotent)
+        # 2. Émettre le ticket (idempotent) — transaction imbriquée (savepoint)
+        #    pour qu'une erreur base de données n'invalide pas la transaction parente.
         try:
-            from apps.tickets.services import TicketService
-            TicketService.issue_ticket_for_registration(
-                registration=payment.registration
-            )
+            with transaction.atomic():
+                from apps.tickets.services import TicketService
+                TicketService.issue_ticket_for_registration(
+                    registration=payment.registration
+                )
         except Exception:
             logger.exception(
                 "Ticket issuance failed after payment SUCCESS | payment=%s | reg=%s",
@@ -334,9 +359,9 @@ class PaymentService:
             - Les futurs webhooks
         """
         payment = PaymentService._lock(payment)
-        # ✅ Idempotence : déjà SUCCESS → ne rien refaire
-        payment = PaymentService._lock(payment)
-        if payment.status == PaymentStatus.FAILED:
+
+        # Idempotence : déjà SUCCESS → ne rien refaire
+        if payment.status == PaymentStatus.SUCCESS:
             logger.debug(
                 "Payment already SUCCESS (idempotent) | ref=%s",
                 payment.transaction_reference,
@@ -354,7 +379,7 @@ class PaymentService:
             payment.provider_reference = provider_reference
         payment.save()
 
-        # ✅ Pipeline post-success (confirm + ticket + notifs)
+        # Pipeline post-success (confirm + ticket + notifs)
         PaymentService._post_success_pipeline(payment=payment)
 
         logger.info(
@@ -376,6 +401,8 @@ class PaymentService:
         failure_message: str = "",
     ) -> Payment:
         """Marque un paiement comme FAILED."""
+        payment = PaymentService._lock(payment)
+
         if payment.status == PaymentStatus.FAILED:
             return payment
 
@@ -421,6 +448,7 @@ class PaymentService:
     def cancel_payment(*, payment: Payment) -> Payment:
         """Annule un paiement PENDING."""
         payment = PaymentService._lock(payment)
+
         if payment.status == PaymentStatus.CANCELLED:
             raise InvalidPaymentState(detail="Ce paiement est déjà annulé.")
 
@@ -444,6 +472,7 @@ class PaymentService:
     def refund_payment(*, payment: Payment) -> Payment:
         """Rembourse un paiement SUCCESS."""
         payment = PaymentService._lock(payment)
+
         if payment.status == PaymentStatus.REFUNDED:
             raise InvalidPaymentState(detail="Ce paiement est déjà remboursé.")
 
@@ -458,7 +487,10 @@ class PaymentService:
             result = provider.refund_payment(payment)
         except NotImplementedError:
             raise PaymentProviderUnavailable(
-                detail=f"Le remboursement n'est pas disponible pour le provider '{payment.provider}'."
+                detail=(
+                    "Le remboursement n'est pas disponible pour le provider "
+                    f"'{payment.provider}'."
+                )
             )
 
         if result.status != "REFUNDED":
@@ -478,17 +510,21 @@ class PaymentService:
     @transaction.atomic
     def simulate_payment_result(*, payment: Payment, result: str) -> Payment:
         """
-        Simule un résultat de paiement (DEBUG uniquement).
+        Simule un résultat de paiement (mode développement uniquement).
 
         Args:
             payment: Le paiement à simuler.
             result: "SUCCESS", "FAILED", "CANCELLED" ou "PENDING".
+
+        Toutes les transitions passent par la machine d'états
+        (mark_as_success / mark_as_failed / cancel_payment).
         """
-        payment = PaymentService._lock(payment)
         if not settings.PAYMENT_DEVELOPMENT_ENABLED:
             raise PaymentProviderUnavailable(
                 detail="La simulation n'est pas disponible en production."
             )
+
+        payment = PaymentService._lock(payment)
 
         if payment.provider != PaymentProvider.DEVELOPMENT:
             raise InvalidPaymentState(
