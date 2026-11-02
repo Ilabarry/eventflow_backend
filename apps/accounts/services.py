@@ -2,31 +2,42 @@
 Services métier de l'application 'accounts'.
 """
 
-from django.contrib.auth import authenticate
+import logging
+from functools import lru_cache
+
+from django.conf import settings
+from django.contrib.auth.hashers import check_password, make_password
+from django.core import signing
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
+from django.template.loader import render_to_string
+from django.utils import timezone
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
-
-from django.core.mail import EmailMultiAlternatives
-from django.template.loader import render_to_string
-
-from django.core import signing
-from django.conf import settings
-from django.core.mail import send_mail
-from django.urls import reverse
-from django.utils import timezone
-import logging
-
-logger = logging.getLogger(__name__)
-
-# Durée de validité du lien de vérification: 24h
-EMAIL_VERIFICATION_MAX_AGE = 60 * 60 * 24
 
 from apps.accounts.constants import (
     DEFAULT_ROLE_ON_SIGNUP,
     ROLE_DESCRIPTIONS,
 )
 from apps.accounts.models import Role, User
+
+logger = logging.getLogger(__name__)
+
+# Durée de validité du lien de vérification : 24h
+EMAIL_VERIFICATION_MAX_AGE = 60 * 60 * 24
+
+
+@lru_cache(maxsize=1)
+def _dummy_password_hash() -> str:
+    """
+    Hash factice, calculé une seule fois (au premier appel).
+
+    Sert à dépenser le même temps de calcul quand l'email n'existe pas,
+    pour qu'un attaquant ne puisse pas distinguer « email inconnu » de
+    « mauvais mot de passe » en mesurant le temps de réponse.
+    """
+    return make_password("dummy-password-never-used")
 
 
 class AuthService:
@@ -90,10 +101,14 @@ class AuthService:
         ⚠️ On n'utilise PAS authenticate() seul car il retourne None
         pour les comptes inactifs, ce qui masque la vraie raison
         de l'échec (mot de passe vs compte désactivé).
+
+        Résistance à l'énumération par le temps de réponse : si l'email
+        n'existe pas, on calcule quand même un hash.
         """
         try:
             user = User.objects.get(email__iexact=email)
         except User.DoesNotExist:
+            check_password(password, _dummy_password_hash())
             return None
 
         if not user.check_password(password):
@@ -103,15 +118,7 @@ class AuthService:
 
     @staticmethod
     def generate_tokens_for_user(user: User) -> dict:
-        """
-        Génère une paire access + refresh token pour un utilisateur.
-
-        Returns:
-            {
-                "access": "...",
-                "refresh": "..."
-            }
-        """
+        """Génère une paire access + refresh token pour un utilisateur."""
         refresh = RefreshToken.for_user(user)
         return {
             "access": str(refresh.access_token),
@@ -137,7 +144,7 @@ class AuthService:
     def verify_email_token(token: str) -> User:
         """
         Vérifie un token et retourne l'utilisateur correspondant.
-        Lève une exception si le token est invalide ou expiré.
+        Lève ValueError si le token est invalide ou expiré.
         """
         try:
             data = signing.loads(
@@ -150,18 +157,20 @@ class AuthService:
         except signing.BadSignature:
             raise ValueError("Le lien de vérification est invalide.")
 
-        try:
-            user = User.objects.get(pk=data["user_id"])
-        except User.DoesNotExist:
-            raise ValueError("Utilisateur introuvable.")
+        user_id = data.get("user_id") if isinstance(data, dict) else None
+        if not user_id:
+            raise ValueError("Le lien de vérification est invalide.")
 
-        return user
+        try:
+            return User.objects.get(pk=user_id)
+        except (User.DoesNotExist, DjangoValidationError, ValueError):
+            raise ValueError("Utilisateur introuvable.")
 
     @staticmethod
     def send_verification_email(user) -> None:
         """
         Envoie l'email de vérification à l'utilisateur.
-        Utilise un template HTML professionnel avec fallback texte.
+        Utilise un template HTML avec fallback texte.
         """
         token = AuthService.generate_email_verification_token(user)
         frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:4200")
@@ -174,11 +183,7 @@ class AuthService:
         }
 
         subject = "Vérifiez votre adresse email — EVENTFLOW"
-
-        # Version texte (fallback)
         text_body = render_to_string("emails/verify_email.txt", context)
-
-        # Version HTML (design)
         html_body = render_to_string("emails/verify_email.html", context)
 
         msg = EmailMultiAlternatives(
@@ -200,6 +205,11 @@ class AuthService:
         """
         Vérifie le token et active le compte.
         Idempotent : si déjà vérifié, retourne l'utilisateur sans erreur.
+
+        ⚠️ À REVOIR : la ligne `is_active = True` réactive aussi un compte
+        désactivé par un admin. Elle n'est sûre à supprimer que si
+        UserManager.create_user() crée déjà les comptes avec is_active=True
+        (vérifier apps/accounts/managers.py).
         """
         user = AuthService.verify_email_token(token)
 
@@ -207,36 +217,50 @@ class AuthService:
             return user  # Déjà vérifié, on ne fait rien
 
         user.is_email_verified = True
-        user.is_active = True   # Activer le compte
+        user.is_active = True  # Activer le compte
         user.save(update_fields=["is_email_verified", "is_active"])
         logger.info("Email verified | user=%s", user.id)
         return user
 
     # ------------------------------------------------------------------
-    # Refresh
+    # Refresh (avec rotation réelle)
     # ------------------------------------------------------------------
     @staticmethod
+    @transaction.atomic
     def refresh_access_token(refresh_token_str: str) -> dict:
         """
-        Rafraîchit un access token à partir d'un refresh token.
+        Échange un refresh token contre une NOUVELLE paire access + refresh.
 
-        Args:
-            refresh_token_str: Le refresh token envoyé par le client.
-
-        Returns:
-            {"access": "...", "refresh": "..."}
+        - L'ancien refresh token est révoqué (blacklist) : il ne sert qu'une fois.
+        - Un refresh token déjà utilisé est refusé (détection de réutilisation).
+        - Un compte désactivé ou non vérifié est refusé.
 
         Raises:
-            TokenError: Si le refresh token est invalide, expiré ou blacklisté.
+            TokenError: token invalide, expiré, déjà utilisé, ou compte inactif.
         """
+        # TokenError si invalide, expiré ou déjà blacklisté
+        refresh = RefreshToken(refresh_token_str)
+
         try:
-            refresh = RefreshToken(refresh_token_str)
-            return {
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),  # Rotation activée dans settings
-            }
-        except TokenError:
-            raise
+            user = User.objects.get(pk=refresh["user_id"])
+        except (User.DoesNotExist, DjangoValidationError, ValueError, KeyError):
+            raise TokenError("Utilisateur introuvable.")
+
+        if not user.is_active or not user.is_email_verified:
+            raise TokenError("Compte inactif.")
+
+        # blacklist() renvoie (BlacklistedToken, created). Si created est False,
+        # un autre appel simultané vient d'utiliser ce même token.
+        result = refresh.blacklist()
+        created = result[1] if isinstance(result, tuple) else True
+        if not created:
+            raise TokenError("Refresh token déjà utilisé.")
+
+        new_refresh = RefreshToken.for_user(user)
+        return {
+            "access": str(new_refresh.access_token),
+            "refresh": str(new_refresh),
+        }
 
     # ------------------------------------------------------------------
     # Déconnexion
@@ -246,16 +270,8 @@ class AuthService:
         """
         Blackliste un refresh token (déconnexion).
 
-        Args:
-            refresh_token_str: Le refresh token à révoquer.
-
         Raises:
             TokenError: Si le token est invalide.
         """
-        try:
-            token = RefreshToken(refresh_token_str)
-            token.blacklist()
-        except TokenError:
-            raise
-
-
+        token = RefreshToken(refresh_token_str)
+        token.blacklist()

@@ -10,13 +10,20 @@ On sépare les serializers selon leur usage :
     - UserSerializer : lecture (GET)
     - UserProfileSerializer : mise à jour du profil
     - ChangePasswordSerializer : changement de mot de passe
-    - LoginSerializer : connexion (Phase 3)
+    - LoginSerializer : connexion
+    - LogoutSerializer / RefreshRequestSerializer : tokens
+    - VerifyEmailSerializer / ResendVerificationSerializer : vérification d'email
+
+Tous les corps de requête passent par un serializer : un JSON inattendu
+(nombre, tableau, objet à la place d'une chaîne) renvoie un 400 propre
+au lieu d'une erreur 500.
 """
 
-from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from apps.accounts.constants import SIGNUP_ALLOWED_ROLES
+from apps.accounts.models import User
 from apps.accounts.services import AuthService
 from apps.accounts.validators import (
     validate_password_strength,
@@ -24,7 +31,9 @@ from apps.accounts.validators import (
     validate_signup_role,
 )
 
-User = get_user_model()
+# Taille maximale d'une photo de profil et formats acceptés
+PROFILE_PICTURE_MAX_BYTES = 2 * 1024 * 1024  # 2 Mo
+PROFILE_PICTURE_ALLOWED_FORMATS = {"JPEG", "PNG", "WEBP"}
 
 
 # ==================================================================
@@ -34,16 +43,8 @@ class RegisterSerializer(serializers.Serializer):
     """
     Serializer pour l'inscription d'un nouvel utilisateur.
 
-    Champs :
-        - first_name : prénom (obligatoire)
-        - last_name : nom (obligatoire)
-        - email : email unique (obligatoire)
-        - phone : téléphone unique (obligatoire)
-        - password : mot de passe (obligatoire, write_only)
-        - password_confirm : confirmation (obligatoire, write_only)
-        - role : rôle choisi parmi SIGNUP_ALLOWED_ROLES
-
     Le mot de passe n'est JAMAIS retourné dans la réponse.
+    Seuls les rôles de SIGNUP_ALLOWED_ROLES sont acceptés (jamais 'administrateur').
     """
 
     first_name = serializers.CharField(max_length=150)
@@ -65,9 +66,6 @@ class RegisterSerializer(serializers.Serializer):
         validators=[validate_signup_role],
     )
 
-    # ------------------------------------------------------------------
-    # Validations globales (au niveau de l'objet, pas du champ)
-    # ------------------------------------------------------------------
     def validate_email(self, value: str) -> str:
         """Vérifie que l'email n'est pas déjà utilisé."""
         if User.objects.filter(email__iexact=value).exists():
@@ -85,19 +83,24 @@ class RegisterSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
-        """Vérifie que les deux mots de passe correspondent."""
+        """Mots de passe identiques + validateurs Django (mots de passe courants, etc.)."""
         if attrs["password"] != attrs["password_confirm"]:
             raise serializers.ValidationError(
                 {"password_confirm": "Les deux mots de passe ne correspondent pas."}
             )
+
+        validate_password(
+            attrs["password"],
+            user=User(
+                email=attrs["email"],
+                first_name=attrs["first_name"],
+                last_name=attrs["last_name"],
+            ),
+        )
         return attrs
 
-    # ------------------------------------------------------------------
-    # Création (appel du service)
-    # ------------------------------------------------------------------
     def create(self, validated_data: dict) -> User:
         """Crée l'utilisateur via le service AuthService."""
-        # On retire password_confirm, non utilisé pour la création
         validated_data.pop("password_confirm")
 
         return AuthService.register_user(
@@ -116,8 +119,6 @@ class RegisterSerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     """
     Serializer pour lire les informations d'un utilisateur.
-
-    Utilisé pour GET /api/users/me/ et les réponses d'inscription.
 
     Exclut le mot de passe et autres champs sensibles.
     """
@@ -142,7 +143,7 @@ class UserSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = fields  # Tous les champs sont en lecture seule ici
+        read_only_fields = fields
 
     def get_roles(self, obj: User) -> list[str]:
         """Retourne la liste des noms de rôles de l'utilisateur."""
@@ -154,15 +155,10 @@ class UserSerializer(serializers.ModelSerializer):
 # ==================================================================
 class UserProfileSerializer(serializers.ModelSerializer):
     """
-    Serializer pour mettre à jour le profil de l'utilisateur connecté.
+    Mise à jour du profil de l'utilisateur connecté.
 
-    Champs modifiables :
-        - first_name
-        - last_name
-        - phone
-        - profile_picture
-
-    L'email n'est PAS modifiable ici (nécessite une procédure spéciale).
+    Champs modifiables : first_name, last_name, phone, profile_picture.
+    L'email, les rôles et les drapeaux is_staff / is_superuser ne sont PAS modifiables ici.
     """
 
     class Meta:
@@ -173,6 +169,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "phone",
             "profile_picture",
         )
+        # Même format de téléphone qu'à l'inscription
+        # (l'unicité est vérifiée dans validate_phone ci-dessous).
+        extra_kwargs = {
+            "phone": {"validators": [validate_phone_number]},
+        }
 
     def validate_phone(self, value: str) -> str:
         """Vérifie que le téléphone n'est pas déjà utilisé par un autre."""
@@ -183,18 +184,31 @@ class UserProfileSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def validate_profile_picture(self, value):
+        """Taille et format de la photo (le champ DRF a déjà vérifié que c'est une image)."""
+        if value is None:
+            return value
+
+        if value.size > PROFILE_PICTURE_MAX_BYTES:
+            raise serializers.ValidationError("Image trop lourde (2 Mo maximum).")
+
+        image = getattr(value, "image", None)
+        image_format = getattr(image, "format", None)
+        if image_format not in PROFILE_PICTURE_ALLOWED_FORMATS:
+            raise serializers.ValidationError(
+                "Format d'image non autorisé (JPEG, PNG ou WEBP)."
+            )
+        return value
+
 
 # ==================================================================
 # SERIALIZER : Changement de mot de passe
 # ==================================================================
 class ChangePasswordSerializer(serializers.Serializer):
     """
-    Serializer pour changer le mot de passe de l'utilisateur connecté.
+    Changement du mot de passe de l'utilisateur connecté.
 
-    Champs :
-        - old_password : mot de passe actuel
-        - new_password : nouveau mot de passe
-        - new_password_confirm : confirmation
+    Après changement, tous ses refresh tokens sont révoqués (blacklist).
     """
 
     old_password = serializers.CharField(write_only=True)
@@ -214,20 +228,39 @@ class ChangePasswordSerializer(serializers.Serializer):
             )
         return value
 
+    def validate_new_password(self, value: str) -> str:
+        """Validateurs Django (mots de passe courants, similarité avec l'email...)."""
+        validate_password(value, self.context["request"].user)
+        return value
+
     def validate(self, attrs: dict) -> dict:
-        """Vérifie que les nouveaux mots de passe correspondent."""
+        """Confirmation identique + nouveau mot de passe différent de l'ancien."""
         if attrs["new_password"] != attrs["new_password_confirm"]:
             raise serializers.ValidationError(
                 {"new_password_confirm": "Les deux mots de passe ne correspondent pas."}
             )
+        if attrs["new_password"] == attrs["old_password"]:
+            raise serializers.ValidationError(
+                {"new_password": "Le nouveau mot de passe doit être différent de l'ancien."}
+            )
         return attrs
 
     def save(self, **kwargs) -> User:
-        """Applique le changement de mot de passe."""
+        """Applique le changement et révoque toutes les sessions (refresh tokens)."""
+        from rest_framework_simplejwt.token_blacklist.models import (
+            BlacklistedToken,
+            OutstandingToken,
+        )
+
         user = self.context["request"].user
         user.set_password(self.validated_data["new_password"])
         user.save()
+
+        for token in OutstandingToken.objects.filter(user=user):
+            BlacklistedToken.objects.get_or_create(token=token)
+
         return user
+
 
 # ==================================================================
 # SERIALIZER : Connexion
@@ -240,9 +273,6 @@ class LoginSerializer(serializers.Serializer):
         email = attrs.get("email", "").lower()
         password = attrs.get("password", "")
 
-        from apps.accounts.services import AuthService
-
-        # ✅ Appeler la méthode de AuthService
         user = AuthService.authenticate_user(email=email, password=password)
 
         if user is None:
@@ -265,30 +295,46 @@ class LoginSerializer(serializers.Serializer):
 
         attrs["user"] = user
         return attrs
-    
 
 
 # ==================================================================
-# SERIALIZER : Déconnexion
+# SERIALIZER : Déconnexion (indulgent : "best effort")
 # ==================================================================
 class LogoutSerializer(serializers.Serializer):
     """
-    Serializer pour la déconnexion.
+    Corps de la requête de déconnexion.
 
-    L'utilisateur envoie son refresh token pour le blacklister.
+    Le refresh token est optionnel : la déconnexion reste idempotente
+    (un token absent, expiré ou déjà révoqué n'est pas une erreur).
+    Seul un type incorrect (nombre, tableau...) renvoie 400.
     """
 
-    refresh = serializers.CharField()
+    refresh = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2048,
+    )
 
-    def validate_refresh(self, value: str) -> str:
-        """Vérifie que le refresh token est valide."""
-        from rest_framework_simplejwt.tokens import RefreshToken
-        from rest_framework_simplejwt.exceptions import TokenError
 
-        try:
-            RefreshToken(value)
-        except TokenError:
-            raise serializers.ValidationError(
-                "Refresh token invalide ou expiré."
-            )
-        return value
+# ==================================================================
+# SERIALIZER : Refresh
+# ==================================================================
+class RefreshRequestSerializer(serializers.Serializer):
+    """Corps de la requête de rafraîchissement."""
+
+    refresh = serializers.CharField(max_length=2048)
+
+
+# ==================================================================
+# SERIALIZERS : Vérification d'email
+# ==================================================================
+class VerifyEmailSerializer(serializers.Serializer):
+    """Corps de la requête de vérification d'email."""
+
+    token = serializers.CharField(max_length=512)
+
+
+class ResendVerificationSerializer(serializers.Serializer):
+    """Corps de la requête de renvoi de l'email de vérification."""
+
+    email = serializers.EmailField()

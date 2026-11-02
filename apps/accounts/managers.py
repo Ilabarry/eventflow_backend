@@ -23,21 +23,27 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_active", True)
+        # Sans cela, un superuser créé en ligne de commande ne pourrait pas
+        # se connecter via l'API (le login exige un email vérifié).
+        extra_fields.setdefault("is_email_verified", True)
 
         if extra_fields.get("is_staff") is not True:
             raise ValueError(_("Un superuser doit avoir is_staff=True."))
         if extra_fields.get("is_superuser") is not True:
             raise ValueError(_("Un superuser doit avoir is_superuser=True."))
 
-        # ✅ Créer l'utilisateur d'abord
+        # Créer l'utilisateur d'abord
         user = self._create_user(email, password, **extra_fields)
 
-        # ✅ Puis lui attribuer le rôle administrateur
+        # Puis lui attribuer le rôle administrateur
         # Import local pour éviter les imports circulaires
         from apps.accounts.constants import ROLE_ADMIN, ROLE_DESCRIPTIONS
         from apps.accounts.models import Role
 
-        role, _ = Role.objects.get_or_create(
+        # ⚠️ Ne JAMAIS nommer une variable `_` dans cette fonction : Python la
+        # traiterait comme locale PARTOUT dans la fonction, et les appels
+        # _("...") ci-dessus lèveraient UnboundLocalError au lieu de ValueError.
+        role, _created = Role.objects.get_or_create(
             name=ROLE_ADMIN,
             defaults={"description": ROLE_DESCRIPTIONS.get(ROLE_ADMIN, "")},
         )

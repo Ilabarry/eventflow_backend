@@ -1,5 +1,11 @@
 """
 Routes URL racine du projet EVENTFLOW.
+
+Deux réglages (voir settings.py) :
+    - ADMIN_URL        : chemin de l'admin Django (ex: "gestion-x7k2q9/").
+                         Doit finir par "/" et ne pas commencer par "/".
+    - API_DOCS_ENABLED : expose /api/schema/ et /api/docs/ (désactivé par
+                         défaut hors DEBUG, car ils décrivent toute l'API).
 """
 
 from django.conf import settings
@@ -12,12 +18,8 @@ from drf_spectacular.views import (
 )
 
 urlpatterns = [
-    # Admin Django
-    path("admin/", admin.site.urls),
-
-    # Documentation API
-    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
-    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    # Admin Django (chemin configurable)
+    path(getattr(settings, "ADMIN_URL", "admin/"), admin.site.urls),
 
     # API EVENTFLOW
     path("api/", include("apps.accounts.urls")),
@@ -32,11 +34,18 @@ urlpatterns = [
     path("api/", include("apps.certificates.urls")),
 ]
 
+# Documentation API : seulement si activée
+if getattr(settings, "API_DOCS_ENABLED", settings.DEBUG):
+    urlpatterns += [
+        path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+        path(
+            "api/docs/",
+            SpectacularSwaggerView.as_view(url_name="schema"),
+            name="swagger-ui",
+        ),
+    ]
+
+# Fichiers statiques et médias servis par Django en développement uniquement
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
-
-# ✅ Servir les médias en développement
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-

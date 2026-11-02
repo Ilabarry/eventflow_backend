@@ -1,38 +1,45 @@
-from django.shortcuts import render
-from drf_spectacular.utils import extend_schema
-from django.contrib.auth import get_user_model
-
-User = get_user_model()
-
 """
 Vues API de l'application 'accounts'.
 
 Chaque vue est responsable d'UN endpoint. Elle :
     1. Reçoit la requête HTTP
-    2. Valide via un serializer
+    2. Valide via un serializer (JAMAIS request.data.get(...) directement)
     3. Appelle un service si logique métier
     4. Retourne une réponse standardisée
 
 Toutes les réponses utilisent l'enveloppe APIResponse.
+
+Limitation de débit : chaque vue sensible déclare un `throttle_scope`.
+Les taux correspondants DOIVENT exister dans
+settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"], sinon DRF lève
+ImproperlyConfigured (erreur 500).
 """
 
+import logging
+
+from django.db import IntegrityError
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 
+from apps.accounts.models import User
 from apps.accounts.serializers import (
     ChangePasswordSerializer,
     LoginSerializer,
     LogoutSerializer,
+    RefreshRequestSerializer,
     RegisterSerializer,
+    ResendVerificationSerializer,
     UserProfileSerializer,
     UserSerializer,
+    VerifyEmailSerializer,
 )
 from apps.accounts.services import AuthService
 from common.responses.standard import APIResponse
-
-import logging
+from common.throttles import EmailScopedThrottle, ResendEmailTargetThrottle
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +48,11 @@ logger = logging.getLogger(__name__)
 # INSCRIPTION
 # ==================================================================
 class RegisterView(APIView):
+    """POST /api/auth/register/"""
+
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_register"
 
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
@@ -52,13 +63,20 @@ class RegisterView(APIView):
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
-        user = serializer.save()
-        # ✅ NOUVEAU : envoyer l'email de vérification
+        try:
+            user = serializer.save()
+        except IntegrityError:
+            # Course : deux inscriptions simultanées avec le même email/téléphone
+            return APIResponse.error(
+                message="Un compte avec cet email ou ce numéro de téléphone existe déjà.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Envoyer l'email de vérification (sans bloquer l'inscription en cas d'échec)
         try:
             AuthService.send_verification_email(user)
         except Exception:
             logger.exception("Failed to send verification email | user=%s", user.id)
-            # On ne bloque pas l'inscription, l'utilisateur pourra demander un renvoi
 
         return APIResponse.created(
             data=UserSerializer(user).data,
@@ -67,26 +85,31 @@ class RegisterView(APIView):
 
 
 # ==================================================================
-# verification du mail
+# VÉRIFICATION DE L'EMAIL
 # ==================================================================
 class VerifyEmailView(APIView):
     """
     POST /api/auth/verify-email/
     Body : { "token": "..." }
-    Vérifie le token et active le compte.
     """
+
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_verify"
 
     def post(self, request):
-        token = request.data.get("token", "").strip()
-        if not token:
+        serializer = VerifyEmailSerializer(data=request.data)
+        if not serializer.is_valid():
             return APIResponse.error(
-                message="Token manquant.",
+                message="Token manquant ou invalide.",
+                errors=serializer.errors,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
-            user = AuthService.confirm_email_verification(token)
+            user = AuthService.confirm_email_verification(
+                serializer.validated_data["token"].strip()
+            )
         except ValueError as e:
             return APIResponse.error(
                 message=str(e),
@@ -103,38 +126,42 @@ class ResendVerificationEmailView(APIView):
     """
     POST /api/auth/resend-verification/
     Body : { "email": "..." }
-    Renvoie l'email de vérification si le compte existe et n'est pas vérifié.
+
+    Réponse TOUJOURS identique (compte existant ou non, envoi réussi ou non),
+    pour ne pas révéler l'existence d'un compte.
     """
+
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle, ResendEmailTargetThrottle]
+    throttle_scope = "auth_email"
+
+    GENERIC_MESSAGE = (
+        "Si un compte non vérifié existe avec cet email, "
+        "un nouveau lien a été envoyé."
+    )
 
     def post(self, request):
-        email = request.data.get("email", "").lower().strip()
-        if not email:
+        serializer = ResendVerificationSerializer(data=request.data)
+        if not serializer.is_valid():
             return APIResponse.error(
-                message="Email manquant.",
+                message="Email manquant ou invalide.",
+                errors=serializer.errors,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
-        try:
-            user = User.objects.get(email=email, is_email_verified=False)
-        except User.DoesNotExist:
-            # Message générique pour ne pas révéler l'existence du compte
-            return APIResponse.success(
-                message="Si un compte non vérifié existe avec cet email, un nouveau lien a été envoyé.",
-            )
+        email = serializer.validated_data["email"].lower().strip()
+        user = User.objects.filter(email__iexact=email, is_email_verified=False).first()
 
-        try:
-            AuthService.send_verification_email(user)
-        except Exception:
-            logger.exception("Failed to resend verification email | user=%s", user.id)
-            return APIResponse.error(
-                message="Impossible d'envoyer l'email. Réessayez plus tard.",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        if user is not None:
+            try:
+                AuthService.send_verification_email(user)
+            except Exception:
+                # On logue côté serveur, mais la réponse reste identique
+                logger.exception(
+                    "Failed to resend verification email | user=%s", user.id
+                )
 
-        return APIResponse.success(
-            message="Un nouveau lien de vérification a été envoyé.",
-        )
+        return APIResponse.success(message=self.GENERIC_MESSAGE)
 
 
 # ==================================================================
@@ -145,9 +172,12 @@ class LoginView(APIView):
     POST /api/auth/login/
 
     Authentifie l'utilisateur et retourne une paire access + refresh.
+    Limites : par IP (auth_login) ET par email ciblé (auth_login_email).
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle, EmailScopedThrottle]
+    throttle_scope = "auth_login"
 
     @extend_schema(
         request=LoginSerializer,
@@ -173,6 +203,7 @@ class LoginView(APIView):
             message="Connexion réussie.",
         )
 
+
 # ==================================================================
 # REFRESH
 # ==================================================================
@@ -180,22 +211,27 @@ class RefreshTokenView(APIView):
     """
     POST /api/auth/refresh/
 
-    Rafraîchit l'access token à partir d'un refresh token valide.
-    La rotation est activée : un nouveau refresh token est retourné.
+    Échange un refresh token contre une nouvelle paire (rotation réelle) :
+    l'ancien refresh token est révoqué et ne peut plus être réutilisé.
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_refresh"
 
     def post(self, request):
-        refresh_token = request.data.get("refresh")
-        if not refresh_token:
+        serializer = RefreshRequestSerializer(data=request.data)
+        if not serializer.is_valid():
             return APIResponse.error(
-                message="Refresh token manquant.",
+                message="Refresh token manquant ou invalide.",
+                errors=serializer.errors,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
-            tokens = AuthService.refresh_access_token(refresh_token)
+            tokens = AuthService.refresh_access_token(
+                serializer.validated_data["refresh"]
+            )
         except TokenError:
             return APIResponse.error(
                 message="Refresh token invalide ou expiré.",
@@ -219,11 +255,21 @@ class LogoutView(APIView):
     Idempotent : répond 200 même si le token est absent, expiré ou déjà blacklisté.
     """
 
-    # ✅ Pas d'authentification obligatoire : le logout est best-effort
+    # Pas d'authentification obligatoire : le logout est "best effort"
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_logout"
 
     def post(self, request):
-        refresh_token = request.data.get("refresh")
+        serializer = LogoutSerializer(data=request.data)
+        if not serializer.is_valid():
+            return APIResponse.error(
+                message="Données invalides.",
+                errors=serializer.errors,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        refresh_token = serializer.validated_data.get("refresh", "")
 
         # Pas de token → rien à faire, mais pas d'erreur
         if not refresh_token:
@@ -299,10 +345,12 @@ class ChangePasswordView(APIView):
     """
     POST /api/auth/change-password/
 
-    Permet à l'utilisateur connecté de changer son mot de passe.
+    Change le mot de passe et révoque toutes les sessions (refresh tokens).
     """
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_password"
 
     def post(self, request):
         serializer = ChangePasswordSerializer(

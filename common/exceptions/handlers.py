@@ -10,27 +10,55 @@ Ce handler les enveloppe dans notre format standard :
         "message": "Erreur de validation.",
         "errors": {"email": ["Ce champ est obligatoire."]}
     }
+
+Points de sécurité :
+    - Les en-têtes de la réponse DRF (Retry-After sur un 429, WWW-Authenticate
+      sur un 401) sont CONSERVÉS : on modifie `response.data`, on ne crée pas
+      de nouvelle Response.
+    - En production (DEBUG=False), une exception non prévue renvoie un JSON
+      générique ; le détail n'est écrit que dans les logs serveur, jamais
+      dans la réponse.
 """
 
-from rest_framework.views import exception_handler
-from rest_framework.response import Response
+import logging
+
+from django.conf import settings
 from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import exception_handler
+
+logger = logging.getLogger(__name__)
 
 
 def custom_exception_handler(exc, context):
     """
     Handler personnalisé pour toutes les exceptions DRF.
 
-    Appelé automatiquement par DRF quand une exception est levée
-    dans une vue. On délègue d'abord au handler DRF par défaut,
-    puis on reformate la réponse.
+    Appelé automatiquement par DRF quand une exception est levée dans une vue.
     """
     # 1. Laisser DRF gérer l'exception (il retourne None si non géré)
     response = exception_handler(exc, context)
 
     if response is None:
-        # Exception non gérée par DRF : laisser Django gérer (500)
-        return None
+        # Exception non prévue (bug, erreur base de données...).
+        # En développement : on laisse Django afficher la trace complète.
+        if settings.DEBUG:
+            return None
+
+        view = context.get("view")
+        logger.exception(
+            "Unhandled exception | view=%s | exc=%s",
+            view.__class__.__name__ if view else "?",
+            exc.__class__.__name__,
+        )
+        return Response(
+            {
+                "success": False,
+                "message": _get_default_message(status.HTTP_500_INTERNAL_SERVER_ERROR),
+                "errors": {},
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
     # 2. Reformater la réponse selon notre standard
     status_code = response.status_code
@@ -43,18 +71,18 @@ def custom_exception_handler(exc, context):
     if isinstance(errors, dict) and "detail" in errors:
         message = str(errors.pop("detail"))
 
-    # Si errors est une liste simple (ex: PermissionDenied), on la garde
+    # Si errors n'est pas un dict (ex: liste), on l'enveloppe
     if not isinstance(errors, dict):
         errors = {"non_field_errors": errors}
 
-    return Response(
-        {
-            "success": False,
-            "message": message,
-            "errors": errors,
-        },
-        status=status_code,
-    )
+    # On modifie la réponse existante (au lieu d'en créer une nouvelle)
+    # pour conserver ses en-têtes.
+    response.data = {
+        "success": False,
+        "message": message,
+        "errors": errors,
+    }
+    return response
 
 
 def _get_default_message(status_code: int) -> str:

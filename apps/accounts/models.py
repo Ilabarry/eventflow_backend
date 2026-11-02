@@ -256,8 +256,9 @@ class User(AbstractUser):
         self.roles.add(role)
 
     def remove_role(self, role_name: str):
-        """Retire un rôle par son nom."""
-        self.roles.filter(name=role_name).delete()
+        role = Role.objects.filter(name=role_name).first()
+        if role:
+            self.roles.remove(role)
 
     def has_role(self, role_name: str) -> bool:
         """Vérifie si l'utilisateur possède un rôle donné."""
