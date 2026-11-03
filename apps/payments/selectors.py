@@ -2,6 +2,7 @@
 Selectors du module Payment.
 """
 
+from django.conf import settings
 from django.db.models import Count, Q, Sum
 from django.db.models import QuerySet
 
@@ -119,8 +120,6 @@ def get_event_payment_stats(event) -> dict:
             - refunded_amount (uniquement REFUNDED)
             - currency
     """
-    from django.db.models import Count, Q, Sum
-
     qs = Payment.objects.filter(registration__event=event)
 
     # Compteurs par statut
@@ -142,6 +141,14 @@ def get_event_payment_stats(event) -> dict:
         total=Sum("amount")
     )["total"] or 0
 
+    # Devise réellement utilisée par les paiements de cet événement.
+    currency = (
+        qs.exclude(currency="")
+        .values_list("currency", flat=True)
+        .first()
+        or getattr(settings, "PAYMENT_DEFAULT_CURRENCY", "XOF")
+    )
+
     return {
         "total_transactions": counts["total"],
         "successful": counts["successful"],
@@ -151,5 +158,5 @@ def get_event_payment_stats(event) -> dict:
         "refunded": counts["refunded"],
         "total_amount": total_amount,
         "refunded_amount": refunded_amount,
-        "currency": "XOF",
+        "currency": currency,
     }

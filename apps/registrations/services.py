@@ -3,8 +3,12 @@ Services métier du module Registration.
 
 ⚠️ POINT CRITIQUE : la création d'une inscription doit être protégée
 contre les accès concurrents. Deux participants ne doivent JAMAIS
-pouvoir dépasser la capacité d'un événement, même s'ils s'inscrivent
-simultanément.
+pouvoir dépasser la capacité d'un événement, ni le stock d'un type de
+ticket, même s'ils s'inscrivent simultanément.
+
+Le stock d'un type de ticket est RÉSERVÉ dès l'inscription (on compte les
+inscriptions actives, pas seulement les tickets déjà émis), sinon des dizaines
+de participants pourraient s'inscrire puis payer pour un stock épuisé.
 """
 
 import logging
@@ -86,7 +90,8 @@ class RegistrationService:
             EventFull: Si la capacité est atteinte.
             RegistrationNotAllowed: Si l'utilisateur n'est pas actif
                 ou si l'événement n'accepte plus d'inscriptions.
-            PaymentNotPayable: Si l'événement est PAID sans ticket_type.
+            PaymentNotPayable: Si l'événement est PAID sans ticket_type valide.
+            TicketTypeNotOnSale / TicketTypeSoldOut: type de ticket fermé ou épuisé.
         """
         from apps.registrations.validators import validate_event_is_open
 
@@ -142,20 +147,39 @@ class RegistrationService:
                 raise PaymentNotPayable(
                     detail="Un type de ticket est obligatoire pour cet événement payant."
                 )
-            # Vérifier que le ticket_type appartient bien à l'événement
+            # Le ticket_type doit appartenir à l'événement
             if ticket_type.event_id != locked_event.id:
                 raise PaymentNotPayable(
                     detail="Le type de ticket n'appartient pas à cet événement."
                 )
-            # Vérifier que le ticket_type est actif
+            # Le ticket_type doit être actif
             if not ticket_type.is_active:
                 raise PaymentNotPayable(
                     detail="Ce type de ticket n'est plus disponible."
                 )
-            # Vérifier la disponibilité
-            if ticket_type.is_sold_out:
-                from common.exceptions.business import TicketTypeSoldOut
-                raise TicketTypeSoldOut()
+
+            # Verrouiller le type de ticket, puis vérifier vente et stock.
+            # Imports locaux : évitent un import circulaire avec le module tickets.
+            from apps.tickets.models import TicketType
+            from common.exceptions.business import (
+                TicketTypeNotOnSale,
+                TicketTypeSoldOut,
+            )
+
+            locked_tt = TicketType.objects.select_for_update().get(pk=ticket_type.pk)
+
+            if not locked_tt.is_on_sale():
+                raise TicketTypeNotOnSale()
+
+            # Réservation du stock : on compte les inscriptions actives
+            # (PENDING ou CONFIRMED) de ce type, pas seulement les tickets émis.
+            if locked_tt.quantity_total is not None:
+                reserved = Registration.objects.filter(
+                    ticket_type=locked_tt,
+                    status__in=ACTIVE_STATUSES,
+                ).count()
+                if reserved >= locked_tt.quantity_total:
+                    raise TicketTypeSoldOut()
 
         # 6. Déterminer le statut initial
         initial_status = (
@@ -212,20 +236,30 @@ class RegistrationService:
     # ------------------------------------------------------------------
     @staticmethod
     @transaction.atomic
-    def cancel_registration(*, registration: Registration, cancelled_by_user) -> Registration:
+    def cancel_registration(
+        *, registration: Registration, cancelled_by_user=None
+    ) -> Registration:
         """
         Annule une inscription.
+
+        `cancelled_by_user=None` signifie « annulation système » (ex : après
+        un remboursement).
 
         Règles :
             - Verrou sur l'inscription (pas de course annulation/confirmation).
             - Transition vérifiée via la machine d'états du modèle.
-            - Une inscription déjà payée (paiement SUCCESS) ne peut pas être
-              annulée : le paiement doit d'abord être remboursé.
+            - Une inscription dont le paiement est SUCCESS ne peut pas être
+              annulée : le paiement doit d'abord être remboursé (le
+              remboursement annule ensuite l'inscription automatiquement).
             - Les paiements PENDING encore ouverts sont annulés.
+            - Le ticket VALID est annulé : un QR code ne doit plus donner accès.
         """
         from django.utils import timezone
         from apps.payments.constants import PaymentStatus
         from apps.payments.models import Payment
+        from apps.tickets.constants import TicketStatus
+        from apps.tickets.models import Ticket
+        from apps.tickets.services import TicketService
 
         # Verrou + rechargement (on garde le même objet pour l'appelant)
         Registration.objects.select_for_update().get(pk=registration.pk)
@@ -250,11 +284,17 @@ class RegistrationService:
                 )
             )
 
-        # Fermer les paiements encore en attente
         now = timezone.now()
+
+        # Fermer les paiements encore en attente
         Payment.objects.filter(
             registration=registration, status=PaymentStatus.PENDING
         ).update(status=PaymentStatus.CANCELLED, cancelled_at=now, updated_at=now)
+
+        # Révoquer le ticket (s'il est encore valide)
+        ticket = Ticket.objects.filter(registration=registration).first()
+        if ticket is not None and ticket.status == TicketStatus.VALID:
+            TicketService.cancel_ticket(ticket=ticket)
 
         registration.status = RegistrationStatus.CANCELLED
         registration.cancelled_at = now
@@ -262,7 +302,8 @@ class RegistrationService:
 
         logger.info(
             "Registration cancelled | ref=%s | by=%s",
-            registration.reference, cancelled_by_user.email,
+            registration.reference,
+            cancelled_by_user.email if cancelled_by_user else "system",
         )
 
         # Notifier le participant

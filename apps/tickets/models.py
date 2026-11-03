@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.events.models import Event
+from apps.registrations.constants import ACTIVE_STATUSES
 from apps.registrations.models import Registration
 from apps.tickets.constants import (
     ALLOWED_STATUS_TRANSITIONS,
@@ -140,18 +141,33 @@ class TicketType(models.Model):
         return self.quantity_total is None
 
     @property
+    def reserved_quantity(self) -> int:
+        """
+        Quantité réellement immobilisée sur ce type de ticket.
+
+        Le stock est réservé dès qu'une inscription est active (PENDING ou
+        CONFIRMED), avant même l'émission du ticket. `quantity_sold` seul ne
+        reflète que les tickets déjà émis : il sous-estime donc le stock
+        consommé tant que des inscriptions payantes sont en attente.
+        """
+        active_registrations = self.registrations.filter(
+            status__in=ACTIVE_STATUSES
+        ).count()
+        return max(self.quantity_sold, active_registrations)
+
+    @property
     def available_quantity(self) -> int | None:
         """Nombre de places restantes (None si illimité)."""
         if self.is_unlimited:
             return None
-        return max(0, self.quantity_total - self.quantity_sold)
+        return max(0, self.quantity_total - self.reserved_quantity)
 
     @property
     def is_sold_out(self) -> bool:
         """True si la quantité est atteinte."""
         if self.is_unlimited:
             return False
-        return self.quantity_sold >= self.quantity_total
+        return self.reserved_quantity >= self.quantity_total
 
     def is_on_sale(self, at=None) -> bool:
         """

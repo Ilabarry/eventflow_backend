@@ -142,7 +142,44 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+# Dossier configurable : en production, pointer vers un disque persistant
+# (Render Disk monté sur /var/data par exemple) pour éviter la perte des
+# fichiers à chaque redéploiement.
+MEDIA_ROOT = Path(config('MEDIA_ROOT', default=str(BASE_DIR / 'media')))
+
+# ------------------------------------------------------------------
+# STOCKAGE MÉDIA EXTERNE (S3-compatible, optionnel)
+# ------------------------------------------------------------------
+# Dès que AWS_STORAGE_BUCKET_NAME est défini, les médias (couvertures
+# d'événements, PDF de certificats) sont stockés sur un service compatible
+# S3 au lieu du disque local — indispensable sur le plan gratuit Render,
+# dont le disque est éphémère.
+#
+# Fournisseurs compatibles (tous avec une offre gratuite) :
+#   - Supabase Storage : https://<projet>.supabase.co/storage/v1/s3
+#   - Cloudflare R2    : https://<account-id>.r2.cloudflarestorage.com
+#   - Backblaze B2     : https://s3.<region>.backblazeb2.com
+#   - Amazon S3 / MinIO
+AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='')
+AWS_S3_ENDPOINT_URL = config('AWS_S3_ENDPOINT_URL', default='')
+AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
+AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
+AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='auto')
+# URL publique de base du bucket (ex: https://pub-xxx.r2.dev). Si vide, des
+# URL signées (expirantes) sont générées : pratique pour un bucket privé.
+AWS_S3_PUBLIC_URL = config('AWS_S3_PUBLIC_URL', default='')
+AWS_S3_QUERYSTRING_EXPIRE = config('AWS_S3_QUERYSTRING_EXPIRE', default=3600, cast=int)
+
+if AWS_STORAGE_BUCKET_NAME:
+    if not (AWS_S3_ENDPOINT_URL and AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY):
+        from django.core.exceptions import ImproperlyConfigured
+
+        raise ImproperlyConfigured(
+            "Stockage S3 incomplet : renseignez AWS_S3_ENDPOINT_URL, "
+            "AWS_ACCESS_KEY_ID et AWS_SECRET_ACCESS_KEY "
+            "(ou retirez AWS_STORAGE_BUCKET_NAME pour revenir au disque local)."
+        )
+    STORAGES['default'] = {'BACKEND': 'common.storage.s3.S3Storage'}
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -185,7 +222,23 @@ REST_FRAMEWORK = {
     'EXCEPTION_HANDLER': 'common.exceptions.handlers.custom_exception_handler',
     # ✅ UN SEUL DEFAULT_THROTTLE_RATES (fusion des deux)
     'DEFAULT_THROTTLE_CLASSES': [],
+    # ⚠️ Chaque scope utilisé par une vue DOIT être déclaré ici, sinon DRF
+    # lève ImproperlyConfigured (erreur 500) au premier appel.
     'DEFAULT_THROTTLE_RATES': {
+        # Authentification (par IP / utilisateur)
+        'auth_register': config('AUTH_REGISTER_RATE', default='10/hour'),
+        'auth_verify': config('AUTH_VERIFY_RATE', default='30/hour'),
+        'auth_email': config('AUTH_EMAIL_RATE', default='5/hour'),
+        'auth_login': config('AUTH_LOGIN_RATE', default='10/min'),
+        'auth_refresh': config('AUTH_REFRESH_RATE', default='30/min'),
+        'auth_logout': config('AUTH_LOGOUT_RATE', default='30/min'),
+        'auth_password': config('AUTH_PASSWORD_RATE', default='5/hour'),
+        # Authentification (par email ciblé, cf. common/throttles.py)
+        'auth_login_email': config('AUTH_LOGIN_EMAIL_RATE', default='5/min'),
+        'auth_email_target': config('AUTH_EMAIL_TARGET_RATE', default='5/hour'),
+        # Paiements
+        'payment_initiate': config('PAYMENT_INITIATE_RATE', default='10/min'),
+        'payment_action': config('PAYMENT_ACTION_RATE', default='20/min'),
         # Supervision
         'supervision_read': config('SUPERVISION_READ_RATE', default='300/min'),
         'supervision_action': config('SUPERVISION_ACTION_RATE', default='30/min'),
@@ -226,6 +279,21 @@ PAYMENT_DEVELOPMENT_ENABLED = config(
     default=DEBUG,
     cast=bool,
 )
+
+# ------------------------------------------------------------------
+# ADMIN / DOCUMENTATION / QR
+# ------------------------------------------------------------------
+# Chemin personnalisable de l'admin Django (doit finir par "/").
+ADMIN_URL = config("ADMIN_URL", default="admin/")
+
+# Documentation OpenAPI : désactivée par défaut hors DEBUG, car elle décrit
+# toute la surface d'attaque de l'API.
+API_DOCS_ENABLED = config("API_DOCS_ENABLED", default=DEBUG, cast=bool)
+
+# Clé HMAC dédiée à la signature des QR codes. Si elle n'est pas définie,
+# le code retombe sur SECRET_KEY (compatibilité ascendante). Recommandé :
+# une valeur distincte de SECRET_KEY.
+QR_SIGNING_KEY = config("QR_SIGNING_KEY", default=SECRET_KEY)
 
 # ------------------------------------------------------------------
 # CORS (pour Angular)

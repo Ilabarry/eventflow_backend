@@ -8,6 +8,7 @@ from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 
 from apps.accounts.constants import ROLE_ADMIN
+from apps.registrations.constants import ACTIVE_STATUSES
 from apps.tickets.constants import TicketStatus
 from apps.tickets.models import Ticket, TicketType
 
@@ -39,7 +40,10 @@ def get_available_ticket_types(event) -> QuerySet[TicketType]:
     Filtre :
         - is_active=True
         - sales_start_at <= now <= sales_end_at (si définis)
-        - quantity_sold < quantity_total (si limité)
+        - stock réservé < quantity_total (si limité)
+
+    Le stock réservé compte les inscriptions actives (PENDING/CONFIRMED),
+    pas seulement les tickets déjà émis (cf. TicketType.reserved_quantity).
     """
     now = timezone.now()
     return (
@@ -47,7 +51,19 @@ def get_available_ticket_types(event) -> QuerySet[TicketType]:
         .filter(event=event, is_active=True)
         .filter(Q(sales_start_at__isnull=True) | Q(sales_start_at__lte=now))
         .filter(Q(sales_end_at__isnull=True) | Q(sales_end_at__gte=now))
-        .filter(Q(quantity_total__isnull=True) | Q(quantity_sold__lt=models.F("quantity_total")))
+        .annotate(
+            _reserved=Count(
+                "registrations",
+                filter=Q(registrations__status__in=ACTIVE_STATUSES),
+            )
+        )
+        .filter(
+            Q(quantity_total__isnull=True)
+            | (
+                Q(_reserved__lt=models.F("quantity_total"))
+                & Q(quantity_sold__lt=models.F("quantity_total"))
+            )
+        )
         .order_by("price")
     )
 

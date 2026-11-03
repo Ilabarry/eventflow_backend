@@ -1,5 +1,4 @@
 from rest_framework.throttling import UserRateThrottle
-from apps.attendance.filters import AttendanceFilter
 
 
 class CheckInThrottle(UserRateThrottle):
@@ -211,26 +210,6 @@ class MyAttendanceView(APIView):
             data=paginator.get_paginated_response(serializer.data).data,
             message="Mes présences.",
         )
-
-    def get(self, request):
-        queryset = get_user_attendances(request.user)
-        
-        filterset = AttendanceFilter(request.GET, queryset=queryset)
-        if not filterset.is_valid():
-            return APIResponse.error(
-                message="Paramètres invalides.",
-                errors=filterset.errors,
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-        
-        paginator = StandardPagination()
-        page = paginator.paginate_queryset(filterset.qs, request, view=self)
-        serializer = MyAttendanceSerializer(page, many=True)
-        return APIResponse.success(
-            data=paginator.get_paginated_response(serializer.data).data,
-            message="Mes présences.",
-        )
-
 
 # ==================================================================
 # DÉTAIL D'UNE PRÉSENCE

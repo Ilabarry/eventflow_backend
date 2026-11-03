@@ -104,14 +104,19 @@ class PaymentService:
                 detail="Cet événement est gratuit, aucun paiement n'est nécessaire."
             )
 
-        # Priorité au prix du TicketType choisi
+        # Devise par défaut (configurable), utilisée si le ticket n'en définit pas.
+        currency = getattr(settings, "PAYMENT_DEFAULT_CURRENCY", DEFAULT_CURRENCY)
+
+        # Priorité au prix du TicketType choisi (et à sa devise)
         price = None
         if registration.ticket_type_id and registration.ticket_type is not None:
-            tt_price = getattr(registration.ticket_type, "price", None)
+            ticket_type = registration.ticket_type
+            tt_price = getattr(ticket_type, "price", None)
             if tt_price is not None:
                 price = tt_price
+                currency = getattr(ticket_type, "currency", None) or currency
 
-        # Fallback : prix de base de l'événement
+        # Fallback : prix de base de l'événement (pas de devise propre)
         if price is None:
             price = event.base_price
 
@@ -120,13 +125,12 @@ class PaymentService:
                 detail="Le prix de cet événement n'est pas défini correctement."
             )
 
-        return price, DEFAULT_CURRENCY
+        return price, currency
 
     # ------------------------------------------------------------------
     # INITIATION D'UN PAIEMENT (CRITIQUE)
     # ------------------------------------------------------------------
     @staticmethod
-    @transaction.atomic
     def initiate_payment(
         *,
         registration: Registration,
@@ -163,60 +167,63 @@ class PaymentService:
                 detail="Ce moyen de paiement n'est pas disponible."
             )
 
-        # 1. Verrouiller la Registration
-        locked_registration = Registration.objects.select_for_update().get(
-            pk=registration.pk
-        )
+        # ── Étape 1 : travail en base, transaction courte ────────────────
+        # On ne tient JAMAIS de verrou pendant l'appel réseau au provider.
+        with transaction.atomic():
+            # 1. Verrouiller la Registration
+            locked_registration = Registration.objects.select_for_update().get(
+                pk=registration.pk
+            )
 
-        # 2. Idempotence : un retry renvoie le paiement existant (même inscription)
-        if idempotency_key:
-            existing = Payment.objects.filter(
-                idempotency_key=idempotency_key,
+            # 2. Idempotence : un retry renvoie le paiement existant
+            if idempotency_key:
+                existing = Payment.objects.filter(
+                    idempotency_key=idempotency_key,
+                    registration=locked_registration,
+                ).first()
+                if existing:
+                    logger.info(
+                        "Idempotency key reused | payment=%s",
+                        existing.transaction_reference,
+                    )
+                    return existing
+
+            # 3. Statut de la Registration
+            if locked_registration.status != RegistrationStatus.PENDING:
+                raise PaymentNotPayable(
+                    detail=(
+                        "L'inscription doit être en attente. "
+                        f"Statut actuel : {locked_registration.status}."
+                    )
+                )
+
+            # 4. Un seul paiement actif (PENDING ou SUCCESS) par inscription
+            active = Payment.objects.filter(
                 registration=locked_registration,
+                status__in=ACTIVE_STATUSES,
             ).first()
-            if existing:
-                logger.info(
-                    "Idempotency key reused | payment=%s",
-                    existing.transaction_reference,
+            if active:
+                if active.status == PaymentStatus.SUCCESS:
+                    raise PaymentAlreadySuccessful()
+                raise PaymentNotPayable(
+                    detail="Un paiement est déjà en cours pour cette inscription. "
+                           "Annulez-le avant d'en initier un nouveau."
                 )
-                return existing
 
-        # 3. Statut de la Registration
-        if locked_registration.status != RegistrationStatus.PENDING:
-            raise PaymentNotPayable(
-                detail=(
-                    "L'inscription doit être en attente. "
-                    f"Statut actuel : {locked_registration.status}."
-                )
+            # 5. Calcul du montant (côté backend)
+            amount, currency = PaymentService.calculate_amount(locked_registration)
+
+            # 6. Créer le Payment (PENDING)
+            payment = Payment.objects.create(
+                registration=locked_registration,
+                amount=amount,
+                currency=currency,
+                payment_method=payment_method,
+                provider=provider_name,
+                transaction_reference=PaymentService._generate_unique_reference(),
+                status=PaymentStatus.PENDING,
+                idempotency_key=idempotency_key,
             )
-
-        # 4. Un seul paiement actif (PENDING ou SUCCESS) par inscription
-        active = Payment.objects.filter(
-            registration=locked_registration,
-            status__in=ACTIVE_STATUSES,
-        ).first()
-        if active:
-            if active.status == PaymentStatus.SUCCESS:
-                raise PaymentAlreadySuccessful()
-            raise PaymentNotPayable(
-                detail="Un paiement est déjà en cours pour cette inscription. "
-                       "Annulez-le avant d'en initier un nouveau."
-            )
-
-        # 5. Calcul du montant (côté backend)
-        amount, currency = PaymentService.calculate_amount(locked_registration)
-
-        # 6. Créer le Payment
-        payment = Payment.objects.create(
-            registration=locked_registration,
-            amount=amount,
-            currency=currency,
-            payment_method=payment_method,
-            provider=provider_name,
-            transaction_reference=PaymentService._generate_unique_reference(),
-            status=PaymentStatus.PENDING,
-            idempotency_key=idempotency_key,
-        )
 
         logger.info(
             "Payment initiated | ref=%s | reg=%s | amount=%s %s | provider=%s",
@@ -224,12 +231,41 @@ class PaymentService:
             amount, currency, provider_name,
         )
 
-        # 7. Appeler le provider
+        # ── Étape 2 : appel provider HORS transaction (réseau) ──────────
         try:
             provider = get_provider(provider_name)
             result = provider.initiate_payment(payment)
+        except NotImplementedError as e:
+            PaymentService._mark_provider_failure(
+                payment=payment,
+                failure_code="PROVIDER_NOT_IMPLEMENTED",
+                failure_message=str(e),
+            )
+            raise PaymentProviderUnavailable(
+                detail=f"Le provider '{provider_name}' n'est pas encore disponible."
+            )
+        except Exception as e:
+            logger.exception("Provider error | payment=%s", payment.transaction_reference)
+            PaymentService._mark_provider_failure(
+                payment=payment,
+                failure_code="PROVIDER_ERROR",
+                failure_message=str(e)[:500],
+            )
+            raise PaymentProviderError(detail="Erreur du service de paiement.")
 
-            # 8. Mettre à jour le Payment avec la réponse normalisée
+        # ── Étape 3 : enregistrer la réponse et déclencher le pipeline ──
+        with transaction.atomic():
+            payment = PaymentService._lock(payment)
+
+            # Le paiement a pu être annulé entre-temps : ne pas écraser l'état.
+            if payment.status != PaymentStatus.PENDING:
+                logger.warning(
+                    "Provider response ignored (payment no longer PENDING) "
+                    "| ref=%s | status=%s",
+                    payment.transaction_reference, payment.status,
+                )
+                return payment
+
             payment.provider_reference = result.provider_reference
             if result.status == PaymentStatus.SUCCESS:
                 payment.status = PaymentStatus.SUCCESS
@@ -247,25 +283,24 @@ class PaymentService:
             if payment.status == PaymentStatus.SUCCESS:
                 PaymentService._post_success_pipeline(payment=payment)
 
-            return payment
+        return payment
 
-        except NotImplementedError as e:
-            # Le provider existe mais n'est pas implémenté (placeholders)
+    @staticmethod
+    def _mark_provider_failure(
+        *,
+        payment: Payment,
+        failure_code: str,
+        failure_message: str,
+    ) -> None:
+        """Marque un paiement FAILED après une erreur provider (transaction courte)."""
+        with transaction.atomic():
+            payment = PaymentService._lock(payment)
+            if payment.status != PaymentStatus.PENDING:
+                return
             payment.status = PaymentStatus.FAILED
-            payment.failure_code = "PROVIDER_NOT_IMPLEMENTED"
-            payment.failure_message = str(e)
+            payment.failure_code = failure_code
+            payment.failure_message = failure_message
             payment.save()
-            raise PaymentProviderUnavailable(
-                detail=f"Le provider '{provider_name}' n'est pas encore disponible."
-            )
-
-        except Exception as e:
-            logger.exception("Provider error | payment=%s", payment.transaction_reference)
-            payment.status = PaymentStatus.FAILED
-            payment.failure_code = "PROVIDER_ERROR"
-            payment.failure_message = str(e)[:500]
-            payment.save()
-            raise PaymentProviderError(detail="Erreur du service de paiement.")
 
     # ------------------------------------------------------------------
     # PIPELINE POST-SUCCESS (interne)
@@ -282,6 +317,14 @@ class PaymentService:
         ⚠️ Cette méthode doit être appelée UNE SEULE fois par transition
         vers SUCCESS, dans une transaction englobante.
         """
+        # 0. Snapshot du prix réellement payé (premier paiement réussi)
+        registration = payment.registration
+        if registration.price_paid is None:
+            Registration.objects.filter(pk=registration.pk).update(
+                price_paid=payment.amount
+            )
+            registration.price_paid = payment.amount
+
         # 1. Confirmer la Registration
         RegistrationService.confirm_registration(
             registration=payment.registration
@@ -468,20 +511,29 @@ class PaymentService:
     # REMBOURSEMENT
     # ------------------------------------------------------------------
     @staticmethod
-    @transaction.atomic
     def refund_payment(*, payment: Payment) -> Payment:
-        """Rembourse un paiement SUCCESS."""
-        payment = PaymentService._lock(payment)
+        """
+        Rembourse un paiement SUCCESS, puis annule l'inscription et le ticket.
 
-        if payment.status == PaymentStatus.REFUNDED:
-            raise InvalidPaymentState(detail="Ce paiement est déjà remboursé.")
+        L'appel réseau au provider est effectué HORS transaction : aucun
+        verrou n'est conservé pendant l'attente de la réponse externe.
+        """
+        # 1. Vérifications sous verrou (transaction courte)
+        with transaction.atomic():
+            payment = PaymentService._lock(payment)
 
-        if not payment.can_be_refunded():
-            raise InvalidPaymentState(
-                detail=f"Seul un paiement SUCCESS peut être remboursé. Statut : {payment.status}."
-            )
+            if payment.status == PaymentStatus.REFUNDED:
+                raise InvalidPaymentState(detail="Ce paiement est déjà remboursé.")
 
-        # Appeler le provider pour le remboursement
+            if not payment.can_be_refunded():
+                raise InvalidPaymentState(
+                    detail=(
+                        "Seul un paiement SUCCESS peut être remboursé. "
+                        f"Statut : {payment.status}."
+                    )
+                )
+
+        # 2. Appel provider hors transaction (réseau)
         try:
             provider = get_provider(payment.provider)
             result = provider.refund_payment(payment)
@@ -496,9 +548,28 @@ class PaymentService:
         if result.status != "REFUNDED":
             raise PaymentProviderError(detail="Le remboursement a échoué côté provider.")
 
-        payment.status = PaymentStatus.REFUNDED
-        payment.refunded_at = timezone.now()
-        payment.save()
+        # 3. Enregistrer le remboursement + cascade inscription/ticket
+        with transaction.atomic():
+            payment = PaymentService._lock(payment)
+            if payment.status == PaymentStatus.REFUNDED:
+                return payment  # idempotent (remboursement concurrent)
+
+            payment.status = PaymentStatus.REFUNDED
+            payment.refunded_at = timezone.now()
+            payment.save()
+
+            # Cascade : libérer la place et invalider le QR code.
+            # cancel_registration() annule aussi les paiements PENDING et le
+            # ticket VALID. Le paiement courant est déjà REFUNDED, donc il ne
+            # bloque plus l'annulation.
+            registration = Registration.objects.select_for_update().get(
+                pk=payment.registration_id
+            )
+            if registration.status != RegistrationStatus.CANCELLED:
+                RegistrationService.cancel_registration(
+                    registration=registration,
+                    cancelled_by_user=None,
+                )
 
         logger.info("Payment refunded | ref=%s", payment.transaction_reference)
         return payment

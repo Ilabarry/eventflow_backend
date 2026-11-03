@@ -280,7 +280,7 @@ class AttendanceService:
         """
         from apps.tickets.services import TicketService
         from apps.tickets.constants import TicketStatus
-        from common.exceptions.business import BusinessException, TicketNotUsable
+        from common.exceptions.business import TicketNotUsable
 
         # 1. Vérifier la signature du QR
         ticket = TicketService.verify_qr_payload(qr_code)
@@ -293,24 +293,18 @@ class AttendanceService:
                 detail=f"Ce ticket n'est pas utilisable (statut: {ticket.status})."
             )
 
-        # 3. Vérifier que le ticket appartient au bon événement
-        if ticket.registration.event_id != ticket.registration.event_id:
-            raise BusinessException(
-                detail="Le ticket n'appartient pas à cet événement.",
-                status_code=400,
-            )
-
-        # 4. Vérifier l'autorisation de l'organisateur
+        # 3. Vérifier l'autorisation de l'organisateur
+        #    (l'événement est TOUJOURS déduit du ticket, jamais du client)
         ensure_can_manage_event(performed_by, ticket.registration.event)
 
-        # 5. Faire le check-in (réutilise la logique existante)
+        # 4. Faire le check-in (réutilise la logique existante)
         attendance = AttendanceService.check_in(
             registration_id=ticket.registration.id,
             performed_by=performed_by,
             method=CheckInMethod.QR_CODE,
         )
 
-        # 6. Marquer le ticket comme USED
+        # 5. Marquer le ticket comme USED
         TicketService.mark_as_used(ticket=ticket)
 
         logger.info(

@@ -43,7 +43,7 @@ from common.exceptions.business import (
     CategoryAlreadyExists,
     CategoryInUse,
 )
-from common.permissions.base import IsAdmin, IsOrganizer
+from common.permissions.base import IsAdmin, IsOrganizer, is_platform_admin
 from common.responses.standard import APIResponse
 
 
@@ -137,9 +137,7 @@ class EventDetailView(APIView):
 
         # Vérifier l'accès
         is_owner = request.user.is_authenticated and event.organizer_id == request.user.id
-        is_admin = request.user.is_authenticated and (
-            request.user.is_superuser or request.user.is_staff
-        )
+        is_admin = request.user.is_authenticated and is_platform_admin(request.user)
 
         if event.status != "PUBLISHED" and not (is_owner or is_admin):
             return APIResponse.error(

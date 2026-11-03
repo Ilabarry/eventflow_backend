@@ -38,6 +38,7 @@ from apps.payments.serializers import (
 )
 from apps.payments.services import PaymentService
 from apps.registrations.models import Registration
+from common.permissions.base import is_platform_admin
 from common.responses.standard import APIResponse
 import hashlib
 from rest_framework.throttling import ScopedRateThrottle
@@ -140,7 +141,7 @@ class PaymentDetailView(APIView):
 
         # Choisir le bon serializer selon le contexte
         is_organizer = payment.registration.event.organizer_id == request.user.id
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_admin = is_platform_admin(request.user)
 
         if is_organizer or (is_admin and payment.registration.participant_id != request.user.id):
             serializer = PaymentOrganizerSerializer(payment, context={"request": request})
@@ -232,7 +233,7 @@ class RegistrationPaymentsView(APIView):
     def get(self, request, registration_id):
         registration = get_object_or_404(Registration, pk=registration_id)
 
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_admin = is_platform_admin(request.user)
         is_participant = registration.participant_id == request.user.id
         is_organizer = registration.event.organizer_id == request.user.id
 
@@ -243,10 +244,23 @@ class RegistrationPaymentsView(APIView):
             )
 
         queryset = get_registration_payments(registration)
-        serializer = PaymentDetailSerializer(queryset, many=True, context={"request": request})
+
+        paginator = PaymentPagination()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+
+        # Le participant voit la vue détaillée ; l'organisateur/admin voit
+        # la vue organisateur (plus riche) — comme pour le détail d'un paiement.
+        if is_participant and not (is_admin or is_organizer):
+            serializer = PaymentDetailSerializer(
+                page, many=True, context={"request": request}
+            )
+        else:
+            serializer = PaymentOrganizerSerializer(
+                page, many=True, context={"request": request}
+            )
 
         return APIResponse.success(
-            data=serializer.data,
+            data=paginator.get_paginated_response(serializer.data).data,
             message=f"Paiements de l'inscription {registration.reference}.",
         )
 
@@ -262,7 +276,7 @@ class EventPaymentsView(APIView):
     def get(self, request, event_id):
         event = get_object_or_404(Event, pk=event_id)
 
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_admin = is_platform_admin(request.user)
         is_owner = event.organizer_id == request.user.id
         if not (is_admin or is_owner):
             return APIResponse.error(
@@ -300,7 +314,7 @@ class EventPaymentStatsView(APIView):
     def get(self, request, event_id):
         event = get_object_or_404(Event, pk=event_id)
 
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_admin = is_platform_admin(request.user)
         is_owner = event.organizer_id == request.user.id
         if not (is_admin or is_owner):
             return APIResponse.error(

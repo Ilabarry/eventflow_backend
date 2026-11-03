@@ -6,6 +6,12 @@ Routes :
     - TicketType (public) : liste publique
     - Ticket (participant) : liste, détail, annulation
     - Ticket (organisateur) : liste des tickets d'un événement
+
+Règles de sécurité de ce module :
+    - Le payload QR (qr_payload) n'est visible que par le PARTICIPANT
+      propriétaire du ticket (jamais par l'organisateur ni un admin).
+    - L'annulation d'un ticket passe par l'annulation de l'inscription, qui
+      applique la règle « une inscription payée doit d'abord être remboursée ».
 """
 
 from django.shortcuts import get_object_or_404
@@ -14,9 +20,11 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 
 from apps.events.models import Event
+from apps.registrations.constants import RegistrationStatus
+from apps.registrations.services import RegistrationService
 from apps.tickets.filters import TicketFilter, TicketTypeFilter
 from apps.tickets.models import Ticket, TicketType
-from apps.tickets.pagination import TicketPagination, TicketTypePagination
+from apps.tickets.pagination import TicketPagination, TicketTypePagination  # noqa: F401
 from apps.tickets.permissions import (
     IsTicketOwner,
     IsTicketOwnerOrEventOrganizer,
@@ -40,6 +48,8 @@ from apps.tickets.serializers import (
     TicketTypeUpdateSerializer,
 )
 from apps.tickets.services import TicketService, TicketTypeService
+from common.exceptions.business import TicketNotUsable
+from common.permissions.base import is_platform_admin
 from common.responses.standard import APIResponse
 
 
@@ -66,8 +76,7 @@ class EventTicketTypeListCreateView(APIView):
             and event.organizer_id == request.user.id
         )
         is_admin = (
-            request.user.is_authenticated
-            and (request.user.is_superuser or request.user.is_staff)
+            request.user.is_authenticated and is_platform_admin(request.user)
         )
 
         if is_owner or is_admin:
@@ -96,7 +105,7 @@ class EventTicketTypeListCreateView(APIView):
 
         # Vérifier que l'utilisateur est le propriétaire ou admin
         is_owner = event.organizer_id == request.user.id
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_admin = is_platform_admin(request.user)
         if not (is_owner or is_admin):
             return APIResponse.error(
                 message="Vous n'êtes pas l'organisateur de cet événement.",
@@ -129,7 +138,7 @@ class TicketTypeDetailView(APIView):
     """
     GET    /api/ticket-types/{id}/  → détail (propriétaire ou public)
     PATCH  /api/ticket-types/{id}/  → modifier (propriétaire)
-    DELETE /api/ticket-types/{id}/  → supprimer (propriétaire, si non vendu)
+    DELETE /api/ticket-types/{id}/  → supprimer (propriétaire, si inutilisé)
     """
 
     def get_permissions(self):
@@ -150,8 +159,7 @@ class TicketTypeDetailView(APIView):
             and tt.event.organizer_id == request.user.id
         )
         is_admin = (
-            request.user.is_authenticated
-            and (request.user.is_superuser or request.user.is_staff)
+            request.user.is_authenticated and is_platform_admin(request.user)
         )
 
         if is_owner or is_admin:
@@ -266,7 +274,14 @@ class TicketListView(APIView):
 # TICKET — Détail
 # ==================================================================
 class TicketDetailView(APIView):
-    """GET /api/tickets/{id}/"""
+    """
+    GET /api/tickets/{id}/
+
+    - Le participant propriétaire reçoit le détail COMPLET, avec qr_payload.
+    - L'organisateur de l'événement et les admins reçoivent la vue
+      organisateur, SANS qr_payload (le QR est le secret du participant :
+      qui le possède peut entrer à sa place).
+    """
 
     permission_classes = [IsAuthenticated, IsTicketOwnerOrEventOrganizer]
 
@@ -279,11 +294,9 @@ class TicketDetailView(APIView):
             )
         self.check_object_permissions(request, ticket)
 
-        # Si l'utilisateur est organisateur ou admin → vue organisateur
-        is_owner_ticket = ticket.registration.participant_id == request.user.id
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_ticket_owner = ticket.registration.participant_id == request.user.id
 
-        if is_owner_ticket or is_admin:
+        if is_ticket_owner:
             serializer = TicketDetailSerializer(ticket, context={"request": request})
         else:
             serializer = TicketOrganizerSerializer(ticket, context={"request": request})
@@ -298,16 +311,45 @@ class TicketDetailView(APIView):
 # TICKET — Annulation
 # ==================================================================
 class TicketCancelView(APIView):
-    """POST /api/tickets/{id}/cancel/"""
+    """
+    POST /api/tickets/{id}/cancel/
+
+    Annule l'INSCRIPTION associée (et donc le ticket, ses paiements en
+    attente et sa réservation de stock). Si l'inscription a été payée,
+    l'annulation est refusée : un remboursement est nécessaire d'abord.
+    """
 
     permission_classes = [IsAuthenticated, IsTicketOwner]
 
     def post(self, request, pk):
-        ticket = get_object_or_404(Ticket, pk=pk)
+        ticket = get_object_or_404(
+            Ticket.objects.select_related("registration"), pk=pk
+        )
         self.check_object_permissions(request, ticket)
 
-        ticket = TicketService.cancel_ticket(ticket=ticket)
+        # Idempotent : déjà annulé
+        if ticket.is_cancelled:
+            return APIResponse.success(
+                data=TicketDetailSerializer(ticket, context={"request": request}).data,
+                message="Ticket déjà annulé.",
+            )
 
+        if not ticket.can_be_cancelled():
+            raise TicketNotUsable(
+                detail=f"Seul un ticket VALID peut être annulé. Statut : {ticket.status}."
+            )
+
+        registration = ticket.registration
+        if registration.status == RegistrationStatus.CANCELLED:
+            # État incohérent hérité : inscription annulée mais ticket encore valide
+            TicketService.cancel_ticket(ticket=ticket)
+        else:
+            RegistrationService.cancel_registration(
+                registration=registration,
+                cancelled_by_user=request.user,
+            )
+
+        ticket.refresh_from_db()
         return APIResponse.success(
             data=TicketDetailSerializer(ticket, context={"request": request}).data,
             message="Ticket annulé.",
@@ -325,7 +367,7 @@ class EventTicketsView(APIView):
     def get(self, request, event_id):
         event = get_object_or_404(Event, pk=event_id)
 
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_admin = is_platform_admin(request.user)
         is_owner = event.organizer_id == request.user.id
         if not (is_admin or is_owner):
             return APIResponse.error(

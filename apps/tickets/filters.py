@@ -52,8 +52,24 @@ class TicketTypeFilter(django_filters.FilterSet):
         """Filtre les TicketTypes avec quantité disponible."""
         if value:
             from django.db import models
-            return queryset.filter(
-                models.Q(quantity_total__isnull=True)
-                | models.Q(quantity_sold__lt=models.F("quantity_total"))
+            from django.db.models import Count, Q
+
+            from apps.registrations.constants import ACTIVE_STATUSES
+
+            return (
+                queryset
+                .annotate(
+                    _reserved=Count(
+                        "registrations",
+                        filter=Q(registrations__status__in=ACTIVE_STATUSES),
+                    )
+                )
+                .filter(
+                    models.Q(quantity_total__isnull=True)
+                    | (
+                        models.Q(_reserved__lt=models.F("quantity_total"))
+                        & models.Q(quantity_sold__lt=models.F("quantity_total"))
+                    )
+                )
             )
         return queryset

@@ -1,18 +1,30 @@
 """
 Commande de management : create_admin
 
-Crée (ou met à jour) le superutilisateur admin d'EVENTFLOW.
+Crée le superutilisateur admin d'EVENTFLOW.
 
 Utilisée automatiquement lors du déploiement Render (buildCommand),
-car le plan gratuit ne donne pas accès au Shell.
+car le plan gratuit ne donne pas toujours accès au Shell.
+
+Variables d'environnement :
+    ADMIN_EMAIL      : email du compte admin (obligatoire).
+    ADMIN_PASSWORD   : mot de passe initial (obligatoire à la création).
+    ADMIN_RESET_PASSWORD : "true" pour réinitialiser le mot de passe d'un
+                       compte existant (jamais fait implicitement).
+    ADMIN_FIRST_NAME / ADMIN_LAST_NAME / ADMIN_PHONE : champs de profil.
+    ADMIN_ROLE       : nom du rôle (défaut : "administrateur").
+
+⚠️ Aucun mot de passe par défaut n'est fourni. La commande échoue
+explicitement si ADMIN_EMAIL ou ADMIN_PASSWORD manquent, plutôt que de
+créer un compte avec des identifiants connus de tous.
 
 Usage :
     python manage.py create_admin
 """
 import os
 
-from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand, CommandError
 
 from apps.accounts.models import Role
 
@@ -23,41 +35,82 @@ class Command(BaseCommand):
     help = "Crée le superutilisateur admin EVENTFLOW (email vérifié forcé à True)."
 
     def handle(self, *args, **options):
-        email = os.environ.get("ADMIN_EMAIL", "admin@eventflow.com")
-        password = os.environ.get("ADMIN_PASSWORD", "Adminevent@adminflow@admin2026")
+        email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+        password = os.environ.get("ADMIN_PASSWORD", "")
+        reset_password = os.environ.get("ADMIN_RESET_PASSWORD", "").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         first_name = os.environ.get("ADMIN_FIRST_NAME", "Admin")
         last_name = os.environ.get("ADMIN_LAST_NAME", "Eventflow")
-        phone = os.environ.get("ADMIN_PHONE", "+221783249424")
+        phone = os.environ.get("ADMIN_PHONE", "").strip()
         role_name = os.environ.get("ADMIN_ROLE", "administrateur")
 
-        # 1. Créer ou récupérer l'utilisateur (sans le rôle M2M)
-        user, created = User.objects.get_or_create(
-            email=email,
-            defaults={
-                "first_name": first_name,
-                "last_name": last_name,
-                "phone": phone,
-                "is_staff": True,
-                "is_superuser": True,
-                "is_active": True,
-                "is_email_verified": True,
-            },
-        )
+        if not email:
+            raise CommandError(
+                "ADMIN_EMAIL est obligatoire. Définissez-le dans l'environnement "
+                "avant de lancer create_admin."
+            )
+
+        user = User.objects.filter(email=email).first()
+        created = user is None
+
+        if created and not password:
+            raise CommandError(
+                "ADMIN_PASSWORD est obligatoire pour créer le compte admin. "
+                "Aucun mot de passe par défaut n'est utilisé."
+            )
+
+        if created and not phone:
+            raise CommandError(
+                "ADMIN_PHONE est obligatoire pour créer le compte admin "
+                "(le champ téléphone est unique et non nul)."
+            )
 
         if created:
+            user = User.objects.create(
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                phone=phone,
+                is_staff=True,
+                is_superuser=True,
+                is_active=True,
+                is_email_verified=True,
+            )
             user.set_password(password)
             user.save()
         else:
-            # Mise à jour des champs critiques si le compte existe déjà
+            # Ne jamais réactiver ni réinitialiser un compte existant sans
+            # demande explicite : le build Render s'exécute à chaque déploiement.
             user.first_name = first_name
             user.last_name = last_name
-            user.phone = phone
+            if phone:
+                # Ne jamais écraser un téléphone existant par une valeur vide.
+                user.phone = phone
             user.is_staff = True
             user.is_superuser = True
-            user.is_active = True
             user.is_email_verified = True
-            user.set_password(password)
+
+            if reset_password:
+                if not password:
+                    raise CommandError(
+                        "ADMIN_RESET_PASSWORD=true exige ADMIN_PASSWORD."
+                    )
+                user.set_password(password)
+                user.is_active = True
+
             user.save()
+
+            if not reset_password:
+                self.stdout.write(
+                    self.style.WARNING(
+                        "Mot de passe du compte existant conservé "
+                        "(ADMIN_RESET_PASSWORD non activé)."
+                    )
+                )
 
         # 2. Attribuer le rôle (relation ManyToMany)
         role, _ = Role.objects.get_or_create(

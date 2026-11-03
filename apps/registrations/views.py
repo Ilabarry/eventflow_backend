@@ -33,6 +33,7 @@ from apps.registrations.serializers import (
     RegistrationOrganizerSerializer,
 )
 from apps.registrations.services import RegistrationService
+from common.permissions.base import is_platform_admin
 from common.responses.standard import APIResponse
 
 
@@ -149,7 +150,7 @@ class RegistrationDetailView(APIView):
 
         # Si l'utilisateur est l'organisateur, on utilise un serializer différent
         is_organizer = registration.event.organizer_id == request.user.id
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_admin = is_platform_admin(request.user)
 
         if (is_organizer or is_admin) and registration.participant_id != request.user.id:
             serializer = RegistrationOrganizerDetailSerializer(registration, context={"request": request})
@@ -204,7 +205,7 @@ class EventRegistrationsView(APIView):
         event = get_object_or_404(Event, pk=event_id)
 
         # Vérifier que l'utilisateur est le propriétaire ou admin
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_admin = is_platform_admin(request.user)
         is_owner = event.organizer_id == request.user.id
         if not (is_admin or is_owner):
             return APIResponse.error(
@@ -244,7 +245,7 @@ class EventRegistrationDetailView(APIView):
     def get(self, request, event_id, registration_id):
         event = get_object_or_404(Event, pk=event_id)
 
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_admin = is_platform_admin(request.user)
         is_owner = event.organizer_id == request.user.id
         if not (is_admin or is_owner):
             return APIResponse.error(

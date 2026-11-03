@@ -21,6 +21,30 @@ from apps.accounts.constants import (
 
 
 # ==================================================================
+# HELPER : administrateur de la plateforme
+# ==================================================================
+def is_platform_admin(user) -> bool:
+    """
+    Définition UNIQUE de « administrateur de la plateforme ».
+
+    Un admin est soit :
+        - superutilisateur Django,
+        - membre du staff Django,
+        - ou titulaire du rôle métier 'administrateur'.
+
+    ⚠️ À utiliser partout au lieu de tester seulement is_staff/is_superuser :
+    un compte promu via le rôle métier doit avoir les mêmes droits.
+    """
+    if not user or not user.is_authenticated:
+        return False
+    return (
+        bool(user.is_superuser)
+        or bool(user.is_staff)
+        or user.has_role(ROLE_ADMIN)
+    )
+
+
+# ==================================================================
 # PERMISSION : Rôle spécifique
 # ==================================================================
 class IsParticipant(BasePermission):

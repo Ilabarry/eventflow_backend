@@ -8,7 +8,8 @@ services:
       python manage.py collectstatic --noinput
       python manage.py migrate
       python manage.py create_admin
-    startCommand: gunicorn eventflow_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 2
+    # Lance Gunicorn + le scheduler (génération quotidienne des certificats).
+    startCommand: bash start.sh
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -20,8 +21,35 @@ services:
         value: "False"
       - key: ALLOWED_HOSTS
         value: ".onrender.com"
-      - key: PYTHON_VERSION
-        value: "3.11.11"
+      # Ne PAS épingler Python 3.11 : Django 6.1 exige Python >= 3.12.
+      # Laisser Render choisir sa version par défaut (>= 3.12) ou définir
+      # explicitement une version compatible dans le dashboard.
+      - key: CORS_ALLOWED_ORIGINS
+        value: "https://eventflow-fn.vercel.app"
+      - key: ADMIN_URL
+        value: "gestion-eventflow/"
+      - key: API_DOCS_ENABLED
+        value: "False"
+      # Clé HMAC dédiée aux QR codes (générée une fois et conservée par Render).
+      - key: QR_SIGNING_KEY
+        generateValue: true
+      # Compte admin : à renseigner MANUELLEMENT dans le dashboard Render.
+      # create_admin échoue volontairement si ADMIN_EMAIL/ADMIN_PASSWORD manquent.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_FIRST_NAME
+        value: "Admin"
+      - key: ADMIN_LAST_NAME
+        value: "Eventflow"
+      - key: ADMIN_PHONE
+        sync: false
+      # Paiements : mode développement désactivé en production.
+      - key: PAYMENT_DEFAULT_CURRENCY
+        value: "XOF"
+      - key: PAYMENT_DEVELOPMENT_ENABLED
+        value: "False"
       - key: EMAIL_BACKEND
         value: "django.core.mail.backends.smtp.EmailBackend"
       - key: EMAIL_HOST
@@ -34,7 +62,35 @@ services:
         sync: false  # À remplir manuellement dans le dashboard Render
       - key: EMAIL_HOST_PASSWORD
         sync: false  # À remplir manuellement dans le dashboard Render
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
       - key: FRONTEND_URL
-        value: "https://eventflow-fn.vercel.app"  # Remplacer par votre domaine frontend réel
+        value: "https://eventflow-fn.vercel.app"
       - key: CERTIFICATE_VERIFY_URL_BASE
         value: "https://eventflow-fn.vercel.app/verify"
+      # Stockage média : sur le plan gratuit le disque est éphémère.
+      # Pour un disque persistant Render, monter un Disk et définir MEDIA_ROOT.
+      - key: MEDIA_ROOT
+        sync: false
+      # Stockage externe compatible S3 (recommandé, gratuit chez Supabase/R2/B2).
+      # Laisser AWS_STORAGE_BUCKET_NAME vide pour rester sur le disque local.
+      - key: AWS_STORAGE_BUCKET_NAME
+        sync: false
+      - key: AWS_S3_ENDPOINT_URL
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_S3_REGION_NAME
+        value: "auto"
+      - key: AWS_S3_PUBLIC_URL
+        sync: false
+      - key: AWS_S3_QUERYSTRING_EXPIRE
+        value: "3600"
+
+databases:
+  - name: eventflow-db
+    plan: free
+    databaseName: eventflow
+    user: eventflow

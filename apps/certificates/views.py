@@ -35,6 +35,7 @@ from apps.certificates.services import CertificateService
 from apps.events.models import Event
 from apps.registrations.models import Registration
 from common.pagination.standard import StandardPagination
+from common.permissions.base import is_platform_admin
 from common.responses.standard import APIResponse
 
 TAG = ["Certificates"]
@@ -155,7 +156,7 @@ class GenerateCertificateView(APIView):
 
         # Vérifier que l'utilisateur est l'organisateur ou admin
         is_owner = registration.event.organizer_id == request.user.id
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_admin = is_platform_admin(request.user)
         if not (is_owner or is_admin):
             return APIResponse.error(
                 message="Vous n'êtes pas l'organisateur de cet événement.",
@@ -267,7 +268,7 @@ class EventCertificatesView(APIView):
         event = get_object_or_404(Event, pk=event_id)
 
         is_owner = event.organizer_id == request.user.id
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_admin = is_platform_admin(request.user)
         if not (is_owner or is_admin):
             return APIResponse.error(
                 message="Vous n'êtes pas l'organisateur de cet événement.",
@@ -307,7 +308,7 @@ class EventCertificateStatsView(APIView):
         event = get_object_or_404(Event, pk=event_id)
 
         is_owner = event.organizer_id == request.user.id
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_admin = is_platform_admin(request.user)
         if not (is_owner or is_admin):
             return APIResponse.error(
                 message="Vous n'êtes pas l'organisateur de cet événement.",
@@ -351,7 +352,7 @@ class GenerateEventCertificatesView(APIView):
         event = get_object_or_404(Event, pk=event_id)
 
         is_owner = event.organizer_id == request.user.id
-        is_admin = request.user.is_superuser or request.user.is_staff
+        is_admin = is_platform_admin(request.user)
         if not (is_owner or is_admin):
             return APIResponse.error(
                 message="Vous n'êtes pas l'organisateur de cet événement.",

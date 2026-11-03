@@ -11,7 +11,8 @@ Deux réglages (voir settings.py) :
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import include, path
+from django.urls import include, path, re_path
+from django.views.static import serve
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
@@ -45,7 +46,23 @@ if getattr(settings, "API_DOCS_ENABLED", settings.DEBUG):
         ),
     ]
 
-# Fichiers statiques et médias servis par Django en développement uniquement
+# Fichiers statiques et médias.
+# - En développement : helpers Django.
+# - En production : les statiques sont servis par WhiteNoise ; les médias
+#   (images de couverture, certificats) sont servis par Django car le plan
+#   Render gratuit n'expose pas de stockage média persistant/CDN.
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+elif not getattr(settings, "AWS_STORAGE_BUCKET_NAME", ""):
+    # En production sans stockage externe, les médias restent servis par
+    # Django (disque local éphémère sur Render gratuit). Dès qu'un stockage
+    # S3 est configuré, les URL pointent directement vers le fournisseur et
+    # cette route n'a plus lieu d'être.
+    urlpatterns += [
+        re_path(
+            r"^media/(?P<path>.*)$",
+            serve,
+            {"document_root": settings.MEDIA_ROOT},
+        ),
+    ]
