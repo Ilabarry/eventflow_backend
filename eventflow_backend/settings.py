@@ -288,12 +288,19 @@ PAYMENT_DEVELOPMENT_ENABLED = config(
     cast=bool,
 )
 if PAYMENT_DEVELOPMENT_ENABLED and not DEBUG:
-    from django.core.exceptions import ImproperlyConfigured
+    # Le garde-fou ne bloque plus le démarrage (une variable d'env mal
+    # positionnée faisait échouer tout le déploiement), mais la règle
+    # n'est JAMAIS assouplie : en production, la simulation est
+    # systématiquement désactivée et un avertissement est émis dans les
+    # logs. La simulation n'est possible qu'en DEBUG=True (local).
+    import logging
 
-    raise ImproperlyConfigured(
-        "PAYMENT_DEVELOPMENT_ENABLED doit être False lorsque DEBUG=False. "
-        "La simulation de paiement est réservée au développement local."
+    logging.getLogger("eventflow.settings").warning(
+        "PAYMENT_DEVELOPMENT_ENABLED=%s ignoré car DEBUG=False : "
+        "la simulation de paiement est désactivée en production.",
+        True,
     )
+    PAYMENT_DEVELOPMENT_ENABLED = False
 
 # ------------------------------------------------------------------
 # ADMIN / DOCUMENTATION / QR
