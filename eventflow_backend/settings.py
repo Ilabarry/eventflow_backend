@@ -342,6 +342,12 @@ ATTENDANCE_CHECK_IN_OPENS_BEFORE_MINUTES = config(
 # ------------------------------------------------------------------
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
+    # Render interroge /health sans en-tête X-Forwarded-Proto (sonde HTTP
+    # interne) ; sans cette exemption, SecurityMiddleware renvoyait 301,
+    # la sonde échouait et Render terminait le conteneur (SIGTERM).
+    # Exemption strictement limitée à /health : toutes les autres routes
+    # restent redirigées vers HTTPS.
+    SECURE_REDIRECT_EXEMPT = [r"^health/?$"]
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = 31536000

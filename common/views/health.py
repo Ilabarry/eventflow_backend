@@ -10,10 +10,10 @@ Il doit rester :
 
 from django.db import connection
 from django.http import JsonResponse
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_http_methods
 
 
-@require_GET
+@require_http_methods(["GET", "HEAD"])  # HEAD accepté pour les sondes (Render, LB)
 def health_check(request):
     """Retourne 200 si l'application et la base sont disponibles, 503 sinon."""
     try:
