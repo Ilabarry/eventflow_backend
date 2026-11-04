@@ -220,6 +220,10 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'EXCEPTION_HANDLER': 'common.exceptions.handlers.custom_exception_handler',
+    # ⚠️ Désactivé : DRF utilise par défaut `?format=` pour la négociation de
+    # contenu. Or l'API expose `?format=ONLINE|IN_PERSON` (EventFilter) ; sans
+    # ce réglage, DRF intercepte le paramètre et renvoie 404 (format inconnu).
+    'URL_FORMAT_OVERRIDE': None,
     # ✅ UN SEUL DEFAULT_THROTTLE_RATES (fusion des deux)
     'DEFAULT_THROTTLE_CLASSES': [],
     # ⚠️ Chaque scope utilisé par une vue DOIT être déclaré ici, sinon DRF

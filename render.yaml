@@ -7,9 +7,13 @@ services:
       pip install -r requirements.txt
       python manage.py collectstatic --noinput
       python manage.py migrate
-      python manage.py create_admin
+      # --if-configured : ne bloque pas le déploiement si les identifiants
+      # admin ne sont pas encore renseignés dans le dashboard Render.
+      python manage.py create_admin --if-configured
     # Lance Gunicorn + le scheduler (génération quotidienne des certificats).
     startCommand: bash start.sh
+    # Render interroge cet endpoint pour vérifier que le service est prêt.
+    healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
         fromDatabase:

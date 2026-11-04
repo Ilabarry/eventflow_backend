@@ -34,7 +34,31 @@ User = get_user_model()
 class Command(BaseCommand):
     help = "Crée le superutilisateur admin EVENTFLOW (email vérifié forcé à True)."
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--if-configured",
+            action="store_true",
+            help=(
+                "En mode déploiement : si ADMIN_EMAIL, ADMIN_PASSWORD ou "
+                "ADMIN_PHONE manquent, affiche un avertissement et ignore la "
+                "commande au lieu de faire échouer le build."
+            ),
+        )
+
+    def _abort_or_skip(self, message: str, if_configured: bool) -> bool:
+        """Renvoie True si la commande doit s'arrêter sans erreur."""
+        if if_configured:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"ATTENTION : {message} Commande create_admin ignorée "
+                    "(option --if-configured)."
+                )
+            )
+            return True
+        raise CommandError(message)
+
     def handle(self, *args, **options):
+        if_configured = options.get("if_configured", False)
         email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
         password = os.environ.get("ADMIN_PASSWORD", "")
         reset_password = os.environ.get("ADMIN_RESET_PASSWORD", "").lower() in {
@@ -49,25 +73,31 @@ class Command(BaseCommand):
         role_name = os.environ.get("ADMIN_ROLE", "administrateur")
 
         if not email:
-            raise CommandError(
+            if self._abort_or_skip(
                 "ADMIN_EMAIL est obligatoire. Définissez-le dans l'environnement "
-                "avant de lancer create_admin."
-            )
+                "avant de lancer create_admin.",
+                if_configured,
+            ):
+                return
 
         user = User.objects.filter(email=email).first()
         created = user is None
 
         if created and not password:
-            raise CommandError(
+            if self._abort_or_skip(
                 "ADMIN_PASSWORD est obligatoire pour créer le compte admin. "
-                "Aucun mot de passe par défaut n'est utilisé."
-            )
+                "Aucun mot de passe par défaut n'est utilisé.",
+                if_configured,
+            ):
+                return
 
         if created and not phone:
-            raise CommandError(
+            if self._abort_or_skip(
                 "ADMIN_PHONE est obligatoire pour créer le compte admin "
-                "(le champ téléphone est unique et non nul)."
-            )
+                "(le champ téléphone est unique et non nul).",
+                if_configured,
+            ):
+                return
 
         if created:
             user = User.objects.create(

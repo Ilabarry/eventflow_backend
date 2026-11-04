@@ -18,7 +18,12 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
+from common.views.health import health_check
+
 urlpatterns = [
+    # Sonde de disponibilité (Render, monitoring).
+    re_path(r"^health/?$", health_check, name="health"),
+
     # Admin Django (chemin configurable)
     path(getattr(settings, "ADMIN_URL", "admin/"), admin.site.urls),
 
