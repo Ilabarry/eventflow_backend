@@ -47,6 +47,14 @@ _UNSIGNED_PAYLOAD = "UNSIGNED-PAYLOAD"
 _ALGORITHM = "AWS4-HMAC-SHA256"
 
 
+class StorageUnavailableError(OSError):
+    """Le stockage objet est injoignable ou a refusé la requête.
+
+    Distincte d'une simple OSError pour être convertie en réponse API
+    propre (502) par le handler DRF, au lieu d'un 500 générique.
+    """
+
+
 def _quote(value: str, safe: str = "~") -> str:
     """Encodage RFC 3986 exigé par AWS (espace => %20, pas +)."""
     return urllib.parse.quote(str(value), safe=safe)
@@ -290,11 +298,11 @@ class S3Storage(Storage):
                 detail = exc.read().decode("utf-8", errors="replace")[:500]
             except Exception:  # pragma: no cover - lecture best-effort
                 pass
-            raise OSError(
+            raise StorageUnavailableError(
                 f"Erreur stockage S3 ({method} {name}) : HTTP {exc.code} {detail}"
             ) from exc
         except urllib.error.URLError as exc:
-            raise OSError(
+            raise StorageUnavailableError(
                 f"Stockage S3 injoignable ({method} {name}) : {exc.reason}"
             ) from exc
 

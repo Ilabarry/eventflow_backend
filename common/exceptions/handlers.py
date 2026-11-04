@@ -27,6 +27,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import exception_handler
 
+from common.storage.s3 import StorageUnavailableError
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,6 +38,28 @@ def custom_exception_handler(exc, context):
 
     Appelé automatiquement par DRF quand une exception est levée dans une vue.
     """
+    # 0. Stockage objet indisponible (S3/R2/Supabase…) : 502 propre, sans
+    #    jamais exposer les détails internes (bucket, clé, endpoint) au
+    #    client. Le détail reste dans les logs.
+    if isinstance(exc, StorageUnavailableError):
+        view = context.get("view")
+        logger.exception(
+            "Stockage indisponible | view=%s | exc=%s",
+            view.__class__.__name__ if view else "?",
+            exc.__class__.__name__,
+        )
+        return Response(
+            {
+                "success": False,
+                "message": (
+                    "Le stockage des fichiers est indisponible pour le moment. "
+                    "Réessayez plus tard."
+                ),
+                "errors": {},
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
     # 1. Laisser DRF gérer l'exception (il retourne None si non géré)
     response = exception_handler(exc, context)
 
