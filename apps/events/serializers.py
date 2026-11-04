@@ -19,7 +19,7 @@ Liste :
 
 from rest_framework import serializers
 
-from apps.accounts.serializers import UserSerializer
+from apps.accounts.serializers import PublicUserSerializer
 from apps.events.constants import (
     CapacityType,
     EventFormat,
@@ -33,6 +33,7 @@ from apps.events.validators import (
     validate_dates,
     validate_format_data,
 )
+from common.utils.sanitize import sanitize_rich_text
 
 
 # ==================================================================
@@ -119,6 +120,10 @@ class EventCreateSerializer(serializers.ModelSerializer):
             validate_cover_image(value)
         return value
 
+    def validate_description(self, value: str) -> str:
+        """Nettoie le HTML de la description (défense backend contre la XSS)."""
+        return sanitize_rich_text(value)
+
     def validate(self, attrs: dict) -> dict:
         """Validations transverses (dépendent de plusieurs champs)."""
         # Dates
@@ -182,6 +187,10 @@ class EventUpdateSerializer(serializers.ModelSerializer):
             validate_cover_image(value)
         return value
 
+    def validate_description(self, value: str) -> str:
+        """Nettoie le HTML de la description (défense backend contre la XSS)."""
+        return sanitize_rich_text(value)
+
     def validate(self, attrs: dict) -> dict:
         """Validations transverses."""
         # Récupérer les valeurs (nouvelles OU existantes)
@@ -209,7 +218,7 @@ class EventListSerializer(serializers.ModelSerializer):
     """
 
     category = CategorySerializer(read_only=True)
-    organizer = UserSerializer(read_only=True)
+    organizer = PublicUserSerializer(read_only=True)
     available_slots = serializers.SerializerMethodField()
 
     class Meta:
@@ -248,7 +257,7 @@ class EventDetailSerializer(serializers.ModelSerializer):
     """
 
     category = CategorySerializer(read_only=True)
-    organizer = UserSerializer(read_only=True)
+    organizer = PublicUserSerializer(read_only=True)
     available_slots = serializers.SerializerMethodField()
     registered_count = serializers.SerializerMethodField()
     ticket_types = serializers.SerializerMethodField()

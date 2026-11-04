@@ -19,6 +19,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 
+from apps.events.constants import EventStatus
 from apps.events.models import Event
 from apps.registrations.constants import RegistrationStatus
 from apps.registrations.services import RegistrationService
@@ -78,6 +79,12 @@ class EventTicketTypeListCreateView(APIView):
         is_admin = (
             request.user.is_authenticated and is_platform_admin(request.user)
         )
+
+        if not (is_owner or is_admin) and event.status != EventStatus.PUBLISHED:
+            return APIResponse.error(
+                message="Événement introuvable.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
 
         if is_owner or is_admin:
             qs = get_event_ticket_types(event)
@@ -161,6 +168,16 @@ class TicketTypeDetailView(APIView):
         is_admin = (
             request.user.is_authenticated and is_platform_admin(request.user)
         )
+
+        # Un type de ticket inactif ou rattaché à un événement non publié
+        # ne doit pas être visible publiquement, même avec son UUID.
+        if not (is_owner or is_admin) and (
+            not tt.is_active or tt.event.status != EventStatus.PUBLISHED
+        ):
+            return APIResponse.error(
+                message="Type de ticket introuvable.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
 
         if is_owner or is_admin:
             serializer = TicketTypeOrganizerSerializer(tt, context={"request": request})

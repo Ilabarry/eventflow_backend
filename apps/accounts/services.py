@@ -216,9 +216,11 @@ class AuthService:
         if user.is_email_verified:
             return user  # Déjà vérifié, on ne fait rien
 
+        # ⚠️ On ne touche PAS à is_active : un compte suspendu par un
+        # administrateur ne doit pas pouvoir se réactiver en cliquant sur
+        # un lien de vérification.
         user.is_email_verified = True
-        user.is_active = True  # Activer le compte
-        user.save(update_fields=["is_email_verified", "is_active"])
+        user.save(update_fields=["is_email_verified"])
         logger.info("Email verified | user=%s", user.id)
         return user
 

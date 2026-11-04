@@ -151,6 +151,32 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 # ==================================================================
+# SERIALIZER : Lecture publique (organisateur exposé sur un événement)
+# ==================================================================
+class PublicUserSerializer(serializers.ModelSerializer):
+    """
+    Version minimale d'un utilisateur exposée sans authentification.
+
+    Ne contient AUCUNE donnée personnelle sensible (email, téléphone,
+    statut staff/superuser). Utilisée pour l'organisateur d'un événement
+    public : un visiteur ne doit pas pouvoir moissonner les contacts.
+    """
+
+    full_name = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "first_name",
+            "last_name",
+            "full_name",
+            "profile_picture",
+        )
+        read_only_fields = fields
+
+
+# ==================================================================
 # SERIALIZER : Mise à jour du profil
 # ==================================================================
 class UserProfileSerializer(serializers.ModelSerializer):

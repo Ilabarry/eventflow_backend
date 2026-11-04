@@ -251,6 +251,7 @@ REST_FRAMEWORK = {
         'attendance_qr': '120/min',
         # Certificates
         'certificate_verify': '30/min',
+        'certificate_generate': config('CERTIFICATE_GENERATE_RATE', default='10/hour'),
     },
 }
 
@@ -278,11 +279,21 @@ SPECTACULAR_SETTINGS = {
 # PAYMENT
 # ------------------------------------------------------------------
 PAYMENT_DEFAULT_CURRENCY = config("PAYMENT_DEFAULT_CURRENCY", default="XOF")
+# Fail-closed : la simulation de paiement est désactivée par défaut et
+# interdite en production. Elle ne doit jamais permettre de marquer un
+# paiement comme réussi sans encaissement réel.
 PAYMENT_DEVELOPMENT_ENABLED = config(
     "PAYMENT_DEVELOPMENT_ENABLED",
-    default=DEBUG,
+    default=False,
     cast=bool,
 )
+if PAYMENT_DEVELOPMENT_ENABLED and not DEBUG:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        "PAYMENT_DEVELOPMENT_ENABLED doit être False lorsque DEBUG=False. "
+        "La simulation de paiement est réservée au développement local."
+    )
 
 # ------------------------------------------------------------------
 # ADMIN / DOCUMENTATION / QR

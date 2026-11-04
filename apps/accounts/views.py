@@ -150,7 +150,12 @@ class ResendVerificationEmailView(APIView):
             )
 
         email = serializer.validated_data["email"].lower().strip()
-        user = User.objects.filter(email__iexact=email, is_email_verified=False).first()
+        # Ne jamais renvoyer de lien à un compte désactivé/suspendu.
+        user = User.objects.filter(
+            email__iexact=email,
+            is_email_verified=False,
+            is_active=True,
+        ).first()
 
         if user is not None:
             try:

@@ -11,6 +11,7 @@ Deux réglages (voir settings.py) :
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from django.http import Http404
 from django.urls import include, path, re_path
 from django.views.static import serve
 from drf_spectacular.views import (
@@ -56,8 +57,21 @@ if getattr(settings, "API_DOCS_ENABLED", settings.DEBUG):
 # - En production : les statiques sont servis par WhiteNoise ; les médias
 #   (images de couverture, certificats) sont servis par Django car le plan
 #   Render gratuit n'expose pas de stockage média persistant/CDN.
+#
+# ⚠️ Les PDF de certificats sont nominatifs : ils ne doivent jamais être
+# téléchargeables directement via /media/. Ils restent accessibles uniquement
+# via /api/certificates/{id}/download/ (authentification + contrôle de
+# propriété).
+def serve_public_media(request, path):
+    if path.startswith("certificates/"):
+        raise Http404("Média privé.")
+    return serve(request, path, document_root=settings.MEDIA_ROOT)
+
+
 if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += [
+        re_path(r"^media/(?P<path>.*)$", serve_public_media, name="media"),
+    ]
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 elif not getattr(settings, "AWS_STORAGE_BUCKET_NAME", ""):
     # En production sans stockage externe, les médias restent servis par
@@ -65,9 +79,5 @@ elif not getattr(settings, "AWS_STORAGE_BUCKET_NAME", ""):
     # S3 est configuré, les URL pointent directement vers le fournisseur et
     # cette route n'a plus lieu d'être.
     urlpatterns += [
-        re_path(
-            r"^media/(?P<path>.*)$",
-            serve,
-            {"document_root": settings.MEDIA_ROOT},
-        ),
+        re_path(r"^media/(?P<path>.*)$", serve_public_media, name="media"),
     ]

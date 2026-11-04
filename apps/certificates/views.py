@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.certificates.filters import CertificateFilter
@@ -133,6 +133,8 @@ class GenerateCertificateView(APIView):
     """POST /api/certificates/generate/"""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "certificate_generate"
 
     @extend_schema(
         tags=TAG,
@@ -198,7 +200,7 @@ class RevokeCertificateView(APIView):
 # ==================================================================
 # VÉRIFICATION PUBLIQUE (sans auth, throttlée)
 # ==================================================================
-class VerifyCertificateThrottle(AnonRateThrottle):
+class VerifyCertificateThrottle(ScopedRateThrottle):
     scope = "certificate_verify"
 
 
@@ -207,6 +209,7 @@ class VerifyCertificateView(APIView):
 
     permission_classes = [AllowAny]
     throttle_classes = [VerifyCertificateThrottle]
+    throttle_scope = "certificate_verify"
 
     @extend_schema(tags=TAG, summary="Vérification publique d'un certificat")
     def get(self, request, verification_code):
@@ -333,6 +336,8 @@ class GenerateEventCertificatesView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "certificate_generate"
 
     @extend_schema(
         tags=TAG,
